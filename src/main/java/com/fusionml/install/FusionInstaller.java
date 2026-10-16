@@ -491,8 +491,23 @@ public final class FusionInstaller {
             return List.of();
         }
         try {
-            com.fusionml.mc.ServerFetch.Launchers l =
-                    com.fusionml.mc.ServerFetch.writeServerLaunchers(gameDir, loaderJar, null, 4096);
+            // Java 必须按**目标版本的要求**解析，而不是按"跑安装器的这个 JVM"。
+            // 这两者常常不同：实测本机 PATH 与安装器自己都是 Java 21，
+            // 而 26.3 需要 Java 25 —— 照安装器自己的版本写进脚本，服务端一起来就是
+            // UnsupportedClassVersionError（class file version 69.0 > 65.0）。
+            int required = com.fusionml.FusionVersions.packagedRequiredJava();
+            Path javaExe = null;
+            try {
+                com.fusionml.launch.JavaFinder.Found f =
+                        com.fusionml.launch.JavaFinder.find(required);
+                if (f != null) {
+                    javaExe = f.javaExe();
+                }
+            } catch (Throwable ignored) {
+                // 探测失败就让脚本退回 PATH 上的 java（脚本里有注释说明怎么改）。
+            }
+            com.fusionml.mc.ServerFetch.Launchers l = com.fusionml.mc.ServerFetch
+                    .writeServerLaunchers(gameDir, loaderJar, null, 4096, javaExe);
             List<String> names = new ArrayList<>();
             for (Path p : l.written()) {
                 names.add(gameDir.relativize(p).toString());
