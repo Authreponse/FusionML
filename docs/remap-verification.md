@@ -386,6 +386,24 @@ mods/ config/ start-game.cmd …
 所以重复安装廉价、中断可续。`--no-assets` 用于快速验证启动链路；
 首次装机必须下 assets，否则没有音效与语言。
 
+### 端到端验证（真机，已通过）
+
+在**空目录** `build\fulltest` 上跑 `--install-full 26.3 --no-assets`，然后直接启动：
+
+```
+[21:53:29] [Render thread/INFO]: Setting user: Player
+[21:53:30] [Render thread/INFO]: Backend library: LWJGL version 3.4.3+4
+[21:53:31] [Render thread/INFO]: Using graphics backend OpenGL, using drivers: 3.3.0 NVIDIA 617.42
+[21:53:35] [STDOUT]: [FusionML/跨端] 挂载点已进入（Minecraft）
+[21:53:38] [Render thread/INFO]: Sound engine started
+[21:53:38] [Render thread/INFO]: OpenAL initialized on device OpenAL Soft
+```
+
+退出码 0，日志无 `has crashed`。日志里另有两处 ERROR 属正常现象、与安装无关：
+`icons/icon_256x256.png` 缺失（没下 assets）、`InvalidCredentialsException`（离线账号）。
+
+**结论：从空目录到"能进主界面并渲染"已是一条命令的事。**
+
 ### 本轮踩的坑（写进纪律）
 
 想省一次写操作，用了 PowerShell 的 `Get-Content … -replace … | Set-Content` 改 Java 源文件，

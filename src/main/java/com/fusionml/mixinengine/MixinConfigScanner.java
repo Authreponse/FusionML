@@ -86,15 +86,22 @@ public final class MixinConfigScanner {
     /**
      * 扫描一批模组包，收集全部 Mixin 配置。
      *
-     * @param jars  模组包（可以是 mods 目录里的，也可以是嵌套包）
-     * @param client 当前是不是客户端（用于过滤 client/server 列表）
+     * <p><b>只返回"当前运行侧会用到"的条目</b>：{@code client} 列表里的 Mixin
+     * 在服务端上注入会找不到目标（例如 {@code Minecraft} 类在服务端不存在），
+     * 照搬会直接崩。所以这里按 {@code client} 参数过滤掉不属于本侧的。
+     *
+     * @param jars   模组包（可以是 mods 目录里的，也可以是嵌套包）
+     * @param labels 与 jars 一一对应的可读名字（诊断用）。可为 null
+     * @param client 当前是不是客户端
      */
-    public static Scan scan(List<FastZip> jars, boolean client) {
-        List<Entry> out = new ArrayList<>();
+    public static Scan scan(List<FastZip> jars, List<String> labels, boolean client) {
+        List<Entry> all = new ArrayList<>();
         List<String> configs = new ArrayList<>();
         List<String> notes = new ArrayList<>();
-        for (FastZip z : jars) {
-            String src = label(z);
+        for (int i = 0; i < jars.size(); i++) {
+            FastZip z = jars.get(i);
+            String src = labels != null && i < labels.size() && labels.get(i) != null
+                    ? labels.get(i) : ("jar#" + i);
             for (FastZip.Entry e : z.entries()) {
                 String name = e.name();
                 if (e.isDirectory() || !isMixinConfig(name)) {
@@ -102,7 +109,7 @@ public final class MixinConfigScanner {
                 }
                 configs.add(name);
                 try {
-                    parseOne(z.read(e), src, name, client, out, notes);
+                    parseOne(z.read(e), src, name, all, notes);
                 } catch (Throwable t) {
                     // 单个配置读不出来不能影响其它模组 —— 但也必须留下痕迹，
                     // 否则表现为"某个模组的 Mixin 静默不生效"，极难定位。
@@ -110,10 +117,26 @@ public final class MixinConfigScanner {
                 }
             }
         }
+        // 按运行侧过滤：client 专属的只有客户端要，server 专属的只有服务端要。
+        List<Entry> use = new ArrayList<>(all.size());
+        int dropped = 0;
+        for (Entry en : all) {
+            if (en.appliesTo(client)) {
+                use.add(en);
+            } else {
+                dropped++;
+            }
+        }
         notes.add("扫描 " + jars.size() + " 个模组包，找到 " + configs.size()
-                + " 个 Mixin 配置，共 " + out.size() + " 个待注入类（运行侧="
-                + (client ? "客户端" : "服务端") + "）");
-        return new Scan(out, configs, notes);
+                + " 个 Mixin 配置，共 " + all.size() + " 个待注入类；运行侧="
+                + (client ? "客户端" : "服务端") + "，本侧适用 " + use.size()
+                + " 个，剔除 " + dropped + " 个（另一侧专属）");
+        return new Scan(use, configs, notes);
+    }
+
+    /** 旧签名（不带 labels）：诊断里会显示 jar 序号而不是文件名。 */
+    public static Scan scan(List<FastZip> jars, boolean client) {
+        return scan(jars, null, client);
     }
 
     /**
@@ -133,7 +156,7 @@ public final class MixinConfigScanner {
     }
 
     @SuppressWarnings("unchecked")
-    private static void parseOne(byte[] data, String src, String path, boolean client,
+    private static void parseOne(byte[] data, String src, String path,
                                  List<Entry> out, List<String> notes) {
         if (data == null || data.length == 0) {
             return;
@@ -194,18 +217,5 @@ public final class MixinConfigScanner {
         } catch (NumberFormatException e) {
             return dflt;
         }
-    }
-
-    /** 给一个 FastZip 起个人能看懂的名字（诊断输出用）。 */
-    private static String label(FastZip z) {
-        try {
-            Object p = z.getClass().getMethod("label").invoke(z);
-            if (p != null) {
-                return String.valueOf(p);
-            }
-        } catch (Throwable ignored) {
-            // 拿不到 label 就用类名兜底，不影响功能。
-        }
-        return String.valueOf(z);
     }
 }

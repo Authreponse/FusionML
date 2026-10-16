@@ -40,16 +40,18 @@ public final class MixinScanSelfTest {
 
         long t0 = System.nanoTime();
         List<FastZip> zips = new ArrayList<>();
+        List<String> labels = new ArrayList<>();
         try {
             for (Path p : jars) {
                 try {
                     zips.add(FastZip.open(p));
+                    labels.add(p.getFileName().toString());
                 } catch (Throwable t) {
                     System.out.println("  跳过打不开的包：" + p.getFileName() + "（" + t + "）");
                 }
             }
             for (boolean client : new boolean[]{true, false}) {
-                MixinConfigScanner.Scan s = MixinConfigScanner.scan(zips, client);
+                MixinConfigScanner.Scan s = MixinConfigScanner.scan(zips, labels, client);
                 System.out.println("=== 运行侧 = " + (client ? "客户端" : "服务端") + " ===");
                 System.out.println("  Mixin 配置文件 = " + s.configs().size());
                 System.out.println("  待注入类       = " + s.size());
@@ -97,7 +99,7 @@ public final class MixinScanSelfTest {
                     // 前面已报过，这里静默跳过。
                 }
             }
-            MixinConfigScanner.Scan s = MixinConfigScanner.scan(z2, true);
+            MixinConfigScanner.Scan s = MixinConfigScanner.scan(z2, null, true);
             System.out.println();
             System.out.println("=== 抽样（前 8 个待注入类）===");
             s.entries().stream().limit(8).forEach(e -> {
