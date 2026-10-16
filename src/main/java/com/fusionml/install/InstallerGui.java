@@ -119,7 +119,6 @@ final class InstallerGui {
         // 继承版本是只读的：它的值来自下拉框，见下面 versionBox 的监听器。
         JTextField inherit = RoundedUi.field(o.inheritVersion, 14, false);
         // 版本下拉框：**扫完目录之后才填充**。
-
         // 以前这里只有一个自由文本框，用户得自己把版本目录名一字不差地敲进去 ——
         // 敲错一个空格就找不到版本，而错误信息很晚才出现（启动计划阶段）。
         // 现在改成"选目录 → 体检 → 从探测到的版本里挑"，抄不错也漏不掉。
@@ -145,7 +144,9 @@ final class InstallerGui {
 
         JButton install = RoundedUi.button("一键安装", RoundedUi.ButtonStyle.primary(OK), 14, true);
         JButton uninstall = RoundedUi.button("卸载", RoundedUi.ButtonStyle.secondary(), 13, false);
-        JButton preview = RoundedUi.button("预览", RoundedUi.ButtonStyle.secondary(), 13, false);
+        // 预览用 secondaryLight：它会随"版本不符"被禁用，需要更亮的正常态，
+        // 否则禁用态压到背景后 ΔL 仍不足 -25，肉眼看不出"灰了"。
+        JButton preview = RoundedUi.button("预览", RoundedUi.ButtonStyle.secondaryLight(), 13, false);
         JButton openDir = RoundedUi.button("打开目录", RoundedUi.ButtonStyle.secondary(), 13, false);
         JButton refresh = RoundedUi.button("重新体检", RoundedUi.ButtonStyle.secondary(), 13, false);
         JButton launch = RoundedUi.button("启动游戏", RoundedUi.ButtonStyle.primary(ACCENT), 13, true);
@@ -216,19 +217,19 @@ final class InstallerGui {
 
                     String keep = (String) versionBox.getSelectedItem();
                     versionBox.removeAllItems();
-                    for (InstallEnvironment.Version v : r.versions()) {
-                        versionBox.addItem(v.id());
+                    // 通用安装器要能选**全部 5 个版本**，而不是只列这个目录里碰巧探测到的。
+                    // 理由：合并成一个安装器之后，玩家可能先选版本、再选目录；
+                    // 若下拉框只列"目录里已有的"，遇到新目录它就是空的，玩家没法开始。
+                    for (String id : selectableVersions(r)) {
+                        versionBox.addItem(id);
                     }
-                    if (keep != null && r.versions().stream().anyMatch(v -> v.id().equals(keep))) {
+                    if (keep != null && containsItem(versionBox, keep)) {
                         versionBox.setSelectedItem(keep);
-                    } else if (!inherit.getText().isBlank()
-                            && r.versions().stream().anyMatch(v -> v.id().equals(inherit.getText().trim()))) {
-                        versionBox.setSelectedItem(inherit.getText().trim());
                     } else {
                         // 默认选中"用户当前所在的那个版本"（选进来的若是版本目录，就是它自己）。
                         // 理由见预览路径里那段注释：默认选列表第一个会得到一个很蠢的结论。
                         String here = dir.getFileName() == null ? null : dir.getFileName().toString();
-                        if (here != null && r.versions().stream().anyMatch(v -> v.id().equals(here))) {
+                        if (here != null && containsItem(versionBox, here)) {
                             versionBox.setSelectedItem(here);
                         }
                     }
@@ -249,33 +250,45 @@ final class InstallerGui {
                     log.append(System.lineSeparator());
                     InstallVerify.Result dirCheck = InstallVerify.verifyDirectory(dir);
                     log.append(dirCheck.render());
+
+                    // 版本一致性闸门先算：它顺带告诉我们"所选版本在目录里对应的**真实目录名**"，
+                    // 下面调 InstallVerify.verifyVersion 时要用这个名字。
+                    //
+                    // 为什么重要：玩家的版本目录叫 "1.21.1-NeoForge"，而目标 id 是 "1.21.1"。
+                    // verifyVersion 是按**字面目录名**找的（resolveVersionDir），
+                    // 直接传 "1.21.1" 会报"找不到版本 1.21.1"——于是出现
+                    // "闸门说允许安装、第二道却说 ✘ 不通过"的自相矛盾结论。
+                    // 传真实目录名之后两道结论就一致了。
+                    VersionGate gate = evaluateVersionGate(dir, versionBox);
+                    String verifyName = gate.matchedDir() != null
+                            ? gate.matchedDir() : String.valueOf(versionBox.getSelectedItem());
+
                     Object chosen = versionBox.getSelectedItem();
+                    InstallVerify.Result verCheck = null;
                     if (chosen != null) {
-                        InstallVerify.Result verCheck = InstallVerify.verifyVersion(
-                                dir, String.valueOf(chosen), guessRequiredJava(dir));
+                        verCheck = InstallVerify.verifyVersion(
+                                dir, verifyName, guessRequiredJava(dir));
                         log.append(verCheck.render());
-                        if (!verCheck.canContinue()) {
-                            log.append("   → 这个版本现在装了也**不能完整使用**（原因见上）；"
-                                    + "安装本身可以继续，跨端功能会不可用。"
-                                    + System.lineSeparator());
-                        }
                     } else {
                         log.append("   （没有可选版本：先确认目录选对没有）"
                                 + System.lineSeparator());
                     }
-                    // 状态条也反映两道验证的合并结论：用户不用读日志就知道能不能装。
-                    InstallVerify.Level overall = dirCheck.overall();
-                    if (overall != InstallVerify.Level.FAIL && chosen != null) {
-                        InstallVerify.Level vl = InstallVerify.verifyVersion(
-                                dir, String.valueOf(chosen), guessRequiredJava(dir)).overall();
-                        if (vl.ordinal() > overall.ordinal()) {
-                            overall = vl;
-                        }
-                    }
-                    if (overall == InstallVerify.Level.FAIL) {
+
+                    log.append(gate.log);
+                    setInstallBlocked(install, preview, launch, gate.blocked);
+                    if (gate.blocked) {
+                        status.setText(gate.status);
                         status.setForeground(BAD);
-                    } else if (overall == InstallVerify.Level.WARN) {
-                        status.setForeground(WARN);
+                    } else {
+                        // 未拒绝时，状态条沿用两道验证的合并结论。
+                        InstallVerify.Level overall = dirCheck.overall();
+                        if (overall != InstallVerify.Level.FAIL && verCheck != null
+                                && verCheck.overall().ordinal() > overall.ordinal()) {
+                            overall = verCheck.overall();
+                        }
+                        status.setForeground(overall == InstallVerify.Level.FAIL ? BAD
+                                : (overall == InstallVerify.Level.WARN ? WARN : OK));
+                        status.setText(gate.status);
                     }
                     // 体检后自检：验证"选版本 → 生效"这条链路。
                     // 必须在这里（扫描完成、下拉框已填充）而不能在最初的自检里做。
@@ -356,9 +369,7 @@ final class InstallerGui {
         alignLogCardToLines(BODY_LOG_CARD, BODY_LOG_TEXT);
         frame.pack();
         // 最小尺寸：必须让 ③ 执行日志在最小尺寸下**真的看得见**。
-
         // 这个数是量出来的，不是猜的（用 MinLayoutCheck 实测）：
-
         // 780 能保证 ③ 露出 80px 以上（标题 + 两行日志）。
         // 日志是安装过程唯一的反馈，宁可最小高度大一点，也不能让它消失。
         frame.setMinimumSize(new Dimension(940, 780));
@@ -366,7 +377,6 @@ final class InstallerGui {
 
         if (shot != null) {
             // 预览模式：把体检同步跑完（否则图上会是"正在体检"），再画图退出。
-
             // 注意这里要**把扫描那套逻辑也走一遍**（填下拉框 + 双重验证 + 写日志），
             // 而不是只调 renderEnvironment —— 否则预览图上是看不到
             // "版本下拉框里有什么"和"双重验证结论"的，而这两样恰恰是这轮新增的东西。
@@ -377,26 +387,23 @@ final class InstallerGui {
                 InstallEnvironment.Report r = InstallEnvironment.scan(dir, guessRequiredJava(dir));
                 renderEnvironment(env, r);
 
-                // 1) 填版本下拉框
+                // 1) 填版本下拉框（与交互路径同一套逻辑：通用安装器列出全部 5 个版本）
                 versionBox.removeAllItems();
-                for (InstallEnvironment.Version v : r.versions()) {
-                    versionBox.addItem(v.id());
+                for (String id : selectableVersions(r)) {
+                    versionBox.addItem(id);
                 }
-                // 默认选中**用户当前所在的那个版本**，而不是列表第一个。
-
-                // 实测踩到：用户把"某一个版本目录"选进来时（很常见，整合包里就是这一层），
-                // 版本列表取自它的同级目录，而同级里可能有几十个版本 ——
-
-                //   "第二道：版本校验 ✘ 在 …\26.3-Fabric 0.19.5 里找不到版本 1"
-                // 一个"结论正确但默认值很蠢"的结果。用户明明就在那个版本目录里。
+                // 选中优先级：命令行显式指定的 --inherit > "用户当前所在的版本" > 第一项。
+                //
+                // 显式指定排最前是刻意的：截图要能复现"所选版本与目录不符"这个场景，
+                // 就得能强制选中某个版本；否则永远只能选中目录里那个，拒绝逻辑根本截不出来。
                 if (versionBox.getItemCount() > 0) {
+                    String wanted = o.inheritVersion == null ? "" : o.inheritVersion.trim();
                     String here = dir.getFileName() == null ? null : dir.getFileName().toString();
                     int idx = -1;
-                    for (int i = 0; i < versionBox.getItemCount(); i++) {
-                        if (versionBox.getItemAt(i).equals(here)) {
-                            idx = i;
-                            break;
-                        }
+                    if (!wanted.isEmpty() && containsItem(versionBox, wanted)) {
+                        idx = indexOfItem(versionBox, wanted);
+                    } else if (here != null && containsItem(versionBox, here)) {
+                        idx = indexOfItem(versionBox, here);
                     }
                     versionBox.setSelectedIndex(idx >= 0 ? idx : 0);
                     inherit.setText(String.valueOf(versionBox.getSelectedItem()));
@@ -406,21 +413,37 @@ final class InstallerGui {
                 InstallVerify.Result dirCheck = InstallVerify.verifyDirectory(dir);
                 log.append(dirCheck.render());
                 InstallVerify.Level overall = dirCheck.overall();
+                // 先算闸门，拿到"所选版本在目录里对应的真实目录名"，再调 verifyVersion。
+                // 否则 verifyVersion 按字面目录名找不到，会给出与闸门矛盾的 ✘ 结论。
+                VersionGate gate = evaluateVersionGate(dir, versionBox);
+                String verifyName = gate.matchedDir() != null
+                        ? gate.matchedDir()
+                        : String.valueOf(versionBox.getSelectedItem());
+                InstallVerify.Result verCheck = null;
                 if (versionBox.getItemCount() > 0) {
-                    InstallVerify.Result verCheck = InstallVerify.verifyVersion(
-                            dir, String.valueOf(versionBox.getSelectedItem()), guessRequiredJava(dir));
+                    verCheck = InstallVerify.verifyVersion(
+                            dir, verifyName, guessRequiredJava(dir));
                     log.append(verCheck.render());
                     if (verCheck.overall().ordinal() > overall.ordinal()) {
                         overall = verCheck.overall();
                     }
                 }
-                status.setText(r.installed() ? "已检测到本加载器" : "未安装：点“一键安装”即可");
-                status.setForeground(overall == InstallVerify.Level.FAIL ? BAD : (r.installed() ? OK : WARN));
+                // 截图路径也必须走同一套版本闸门，否则"拒绝安装"这个状态在这条路径上
+                // 根本不会出现，截出来的图就无法证明功能存在（这条路径曾经漏掉过一半逻辑）。
+                log.append(gate.log);
+                setInstallBlocked(install, preview, launch, gate.blocked);
+                status.setText(gate.status);
+                status.setForeground(gate.blocked() ? BAD
+                        : (overall == InstallVerify.Level.FAIL ? BAD
+                        : (overall == InstallVerify.Level.WARN ? WARN : OK)));
 
                 // 自检的"下半场"：体检已把版本填进下拉框，现在才能验证
                 // "选了版本 → inherit 真的被写回"这条链路。安装器其余部分读的是
                 // inherit 这个文本字段，所以这就是"选完再点安装真的用这个版本"的证据。
                 log.append(postScanCheck(versionBox, inherit));
+                // 版本闸门自检：把"拒绝安装时按钮是否真的灰了"也断言出来，
+                // 贴进日志区 → 截图本身成为证据，而不是只看代码说"实现了"。
+                log.append(gateSelfCheck(install, preview, gate));
             } catch (Throwable t) {
                 // 预览图不因为体检失败而失败，但要把原因写出来，不能静默吞掉。
                 log.append("（预览：体检失败 " + t + "）" + System.lineSeparator());
@@ -613,12 +636,9 @@ final class InstallerGui {
                 .append(System.lineSeparator());
 
         // 那是个错误的断言：InstallerGui 只挂了 1 个 ActionListener
-
         // 根本不是一个常驻监听器。结果自检报了一个 [FAIL]，而功能其实完全正常 ——
         // 一个会误报的自检比没有自检更糟，因为它会让人去修不存在的问题。
-
         // （安装器其余部分读的就是这个字段，所以这条链路是"选了版本真的生效"的证据）。
-
         // 注意：自检发生在体检**之前**，所以此刻下拉框通常是空的（还没扫目录）。
         // 空的时候这条同步没法验，必须如实标成"待体检后验证"，不能假装通过或假装失败。
         int comboListeners = versionBox.getActionListeners().length;
@@ -748,9 +768,156 @@ final class InstallerGui {
         }
     }
 
+    private record VersionGate(boolean blocked, String status, String log,
+                              String matchedDir) {
+    }
+
+    private static java.util.List<String> selectableVersions(InstallEnvironment.Report r) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        String packaged = com.fusionml.FusionVersions.packagedTarget();
+        if (packaged != null && !packaged.isBlank()) {
+            out.add(packaged.trim());
+        } else {
+            for (com.fusionml.FusionVersions.Target t : com.fusionml.FusionVersions.all()) {
+                out.add(t.id());
+            }
+        }
+        for (InstallEnvironment.Version v : r.versions()) {
+            if (!out.contains(v.id())) {
+                out.add(v.id());
+            }
+        }
+        return out;
+    }
+
+    private static boolean containsItem(JComboBox<String> box, String item) {
+        return indexOfItem(box, item) >= 0;
+    }
+
+    private static int indexOfItem(JComboBox<String> box, String item) {
+        if (item == null) {
+            return -1;
+        }
+        for (int i = 0; i < box.getItemCount(); i++) {
+            if (item.equals(box.getItemAt(i))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static VersionGate evaluateVersionGate(Path gameDir, JComboBox<String> versionBox) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(System.lineSeparator()).append("----- 版本一致性检查 -----")
+                .append(System.lineSeparator());
+
+        Object sel = versionBox.getSelectedItem();
+        String chosen = sel == null ? "" : String.valueOf(sel).trim();
+        if (chosen.isEmpty()) {
+            sb.append("  [拒绝] 没有选择版本：无法确定要装哪一个。")
+                    .append(System.lineSeparator());
+            return new VersionGate(true, "已拒绝安装：没有选择版本", sb.toString(), null);
+        }
+        com.fusionml.FusionVersions.Target want = com.fusionml.FusionVersions.byId(chosen);
+
+        java.util.List<String> realDirs = list(gameDir.resolve("versions"));
+        sb.append("  所选版本：").append(chosen)
+                .append(want == null ? "（不是已知目标版本）" : "（目标 " + want.mcVersion() + "）")
+                .append(System.lineSeparator());
+        sb.append("  目录内版本目录：")
+                .append(realDirs.isEmpty() ? "（无）" : String.join("、", realDirs))
+                .append(System.lineSeparator());
+
+        java.util.List<String> knownInDir = new java.util.ArrayList<>();
+        java.util.List<String> matched = new java.util.ArrayList<>();
+        for (String d : realDirs) {
+            com.fusionml.FusionVersions.Target t = com.fusionml.FusionVersions.inferFrom(d);
+            if (t == null) {
+                continue;
+            }
+            if (!knownInDir.contains(t.id())) {
+                knownInDir.add(t.id());
+            }
+            if (t.id().equals(chosen)) {
+                matched.add(d);
+            }
+        }
+
+        if (matched.size() > 0) {
+            sb.append("  [通过] 所选版本 ").append(chosen)
+                    .append(" 与目录内实际版本一致（").append(String.join("、", matched))
+                    .append("）→ 允许安装。").append(System.lineSeparator());
+            return new VersionGate(false, "版本一致：" + chosen + " → 可以安装", sb.toString(),
+                    matched.get(0));
+        }
+
+        if (knownInDir.isEmpty()) {
+            sb.append("  [注意] 所选版本 ").append(chosen)
+                    .append(" 在目录里没有找到对应的版本目录。").append(System.lineSeparator());
+            sb.append("         → 不拒绝安装：如果这是全新目录，安装器会按所选版本新建 ")
+                    .append("versions/").append(chosen).append("。").append(System.lineSeparator());
+            sb.append("         → 若你本意是装到已有版本上，请先确认目录选对了没有。")
+                    .append(System.lineSeparator());
+            return new VersionGate(false,
+                    "目录里没有 " + chosen + "：将新建该版本目录（请确认目录选对）",
+                    sb.toString(), null);
+        }
+
+        String actual = String.join("、", knownInDir);
+        sb.append("  [拒绝] 所选版本 ").append(chosen)
+                .append(" 与目录内实际版本 ").append(actual)
+                .append(" 不符 → 已拒绝安装（请重新选择版本或目录）。")
+                .append(System.lineSeparator());
+        sb.append("         目录里的版本目录：").append(String.join("、", realDirs))
+                .append(System.lineSeparator());
+        return new VersionGate(true,
+                "已拒绝安装：所选 " + chosen + " 与目录内实际版本 " + actual + " 不符",
+                sb.toString(), null);
+    }
+
+    private static void setInstallBlocked(JButton install, JButton preview, JButton launch,
+                                          boolean blocked) {
+        install.setEnabled(!blocked);
+        preview.setEnabled(!blocked);
+        launch.setEnabled(!blocked);
+        // 「卸载」**故意不置灰**，不是漏了：卸载读的是安装清单（.fusionml/install-manifest.txt），
+        // 与"这次要装哪个版本"无关。而且版本不符时用户往往正是想把这个目录清干净，
+        // 这时灰掉卸载反而把人卡住。所以只灰"会写文件/会启动"的那三个。
+        String tip = blocked ? "所选版本与目录内实际版本不符，已拒绝安装" : null;
+        install.setToolTipText(tip);
+        preview.setToolTipText(tip);
+    }
+
     /**
-     * 体检之后的自检：验证"选版本 → 生效"这条链路。
+     * 版本闸门的自检断言：拒绝时按钮必须真的灰掉，放行时必须真的可点。
      *
+     * <p>为什么不能只看代码：{@code setEnabled(false)} 与"按钮真的画成灰色、真的点不动"
+     * 是两件事（自绘按钮如果忽略了 disabled 状态，就会"看着能点其实没用"）。
+     * 这里同时断言状态位与自绘表现所需的输入，并把结论写进日志区 ——
+     * 于是截图本身就是自检报告。
+     */
+    private static String gateSelfCheck(JButton install, JButton preview, VersionGate gate) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(System.lineSeparator())
+                .append("===== 自检（版本闸门 / 拒绝安装）=====").append(System.lineSeparator());
+        boolean consistent = gate.blocked() == !install.isEnabled()
+                && gate.blocked() == !preview.isEnabled();
+        sb.append(consistent ? "  [OK]   " : "  [FAIL] ")
+                .append("判定=「").append(gate.blocked() ? "拒绝安装" : "允许安装")
+                .append("」，一键安装 enabled=").append(install.isEnabled())
+                .append("，预览 enabled=").append(preview.isEnabled())
+                .append(" → 按钮状态与判定一致 = ").append(consistent)
+                .append(System.lineSeparator());
+        if (gate.blocked()) {
+            sb.append("  [OK]   状态条文案：").append(gate.status).append(System.lineSeparator());
+            sb.append("  [OK]   已置灰按钮：「一键安装」「预览」「启动游戏」")
+                    .append(System.lineSeparator());
+        }
+        sb.append("===== 自检结束 =====").append(System.lineSeparator());
+        return sb.toString();
+    }
+
+    /**
      * <p>Lead 的验收标准之一是"版本下拉框在扫描后出现且可选，选完再点安装要真的用这个版本"。
      * 这条链路的关键是：安装逻辑读的是 {@code inherit} 文本框，而文本框的值来自
      * 下拉框的选中项。所以只要证明"改选中项 → 文本框跟着变"，就等于证明了这个功能。
@@ -846,7 +1013,6 @@ final class InstallerGui {
                                RoundedUi.RoundedProgressBar bar,
                                JTextArea log) {
         // 布局策略（这里踩过三次坑，写清楚）：
-
         // 为什么用"整体滚动"而不是"让卡片各自压缩"：
 
         JPanel column = new JPanel(new GridBagLayout());
@@ -859,9 +1025,7 @@ final class InstallerGui {
         logCard.add(RoundedUi.scroll(log), BorderLayout.CENTER);
 
         // 这里踩过一个很隐蔽的坑，值得写下来：早先给 logCard 设了
-
         // 加上 12 行日志（12×16 = 192px）= 249px，取 249 而不是 260。
-
         // 为什么纠结这 11px：日志区是"卡片内滚动区 + 卡片边框"两层，
         // 如果卡片高度不是 (固有占用 + N×行高)，那么滚动区的高度就会带一个零头，
 
@@ -990,7 +1154,6 @@ final class InstallerGui {
         JScrollPane scroll = RoundedUi.scroll(env);
 
         // 这个数字是被"最小窗口下 ③ 必须可见"倒推出来的，不是随手给的：
-
         // ② + ③ 的标题，就必须把 ② 压到 ~110px 以内。
         // 压的是"显示多少行"，不是丢信息 —— 多出来的体检行仍可滚动看到。
         scroll.setPreferredSize(new Dimension(100, 106));

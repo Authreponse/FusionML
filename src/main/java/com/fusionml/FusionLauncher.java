@@ -313,6 +313,11 @@ public final class FusionLauncher {
         }
 
         com.fusionml.mc.McInstance.Effective effective = instance.resolve(versionId);
+        // 让"当前版本 id"在**所有**路径上都可见。
+        // 合并基座要按它挑"实例真正在用的那个对方平台补丁号"：libraries 下常常并存
+        // 十几个 neoforge 版本（实测 21.1.194…21.1.256），按目录名挑最新会拿错，
+        // 等于用一个不同补丁号的基座去合并。
+        System.setProperty("fusion.version", versionId);
         System.out.println("版本解析    : " + effective);
         System.out.println("Java 要求   : " + effective.javaMajor);
         System.out.println("依赖库      : " + instance.libraryStatus(effective).summary());

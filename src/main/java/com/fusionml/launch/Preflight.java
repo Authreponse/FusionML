@@ -11,9 +11,7 @@ import java.nio.file.Path;
 // 为什么放在 javaagent 的 premain 而不是接管主类：
 // 平台的运行时（Fabric 的 Knot、NeoForge 的 ModLauncher）与它的类加载器是**不可分割**的 ——
 // 模组的 Mixin、入口点注入、类路径分组全靠它自己的类加载器语义。
-
 // 极难定位的问题（实测踩了三次）。而平台自己当主类时，这套语义天然正确。
-
 //   * 我们（premain）：早期窗口、并行发现、类索引、依赖分析、注入规则装配 —— 全部前置完成；
 //   * 平台（main）：按它自己的方式加载运行时、应用 Mixin、调用模组入口点；
 
@@ -29,7 +27,6 @@ public final class Preflight {
     public static void run() {
         String gameDirProp = System.getProperty("fusion.gameDir", "");
         // 走官方 server.jar（bundler）时没人设 fusion.gameDir：
-
         // 之前这里直接 return，结果服务端"静默什么都不做"——比报错更难查。
         if (gameDirProp.isBlank()) {
             gameDirProp = System.getProperty("user.dir", "");
@@ -60,7 +57,6 @@ public final class Preflight {
         ewConfig.closeOnFinish = false;
 
         // 两个原因，都是实测出来的：
-
         //   2) Swing 会拉起 AWT 事件线程，服务器进程结束后 JVM 迟迟不退
         //      （实测：服务器已经"Stopping server"，进程还活着）。
 
@@ -292,7 +288,6 @@ public final class Preflight {
                 com.fusionml.bytecode.HookInjector.Point.HEAD));
 
         // 它的语义正好是"游戏窗口已就绪、开始跑帧循环了"，比在外部线程里
-
         // 在守护线程上很容易失败或卡住，实测就因此没能及时关掉窗口）。
         session.pipeline.addHook(new com.fusionml.bytecode.HookInjector.Hook(
                 "net/minecraft/client/Minecraft", "run", "()V",
@@ -329,13 +324,11 @@ public final class Preflight {
                 com.fusionml.bytecode.HookInjector.Point.HEAD));
 
         // 时机是实测出来的，不是猜的。试过更早的两个位置，都被原版机制挡住：
-
         // 这两个挂载点用"派发模式"（hookOwner = HookInjector.DISPATCH_OWNER）而不是
         // 直接指向 CrossLoad，原因是服务端的类加载现实：
         // 官方 server.jar 是个 bundler，它新建 URLClassLoader 时取的是
         // getClass().getClassLoader().getParent()（= PlatformClassLoader，实测反汇编确认），
         // **刻意跳过 AppClassLoader**。所以定义 net.minecraft.* 的那个加载器
-
         // NoClassDefFoundError —— 而且异常发生在进入方法体之前，CrossLoad 里
         // 写多少 try/catch 都拦不住（实测就是这个崩法）。
 
@@ -362,7 +355,6 @@ public final class Preflight {
                     + "MinecraftServer#runServer（驱动入口点与注册表）");
         } else {
             // NeoForge/Forge 的 Mixin 服务由 ModLauncher 拉起，引导方法名随版本变动；
-
             // Mixin 配置则由游戏内的兜底路径注册（见 FusionHud.onGameLoopStarted）。
             console.accept("跨端挂载点：" + platform
                     + " 走启动参数 + 游戏内兜底注册（该端 Mixin 引导方法名随版本变动）；"
@@ -469,7 +461,6 @@ public final class Preflight {
             console.accept("跨端运行时：" + found.summary());
 
             //   · 对方 API（neoforge / bus / …）必须早登记 —— 补丁原版类在定义时
-
             //   · FML 引导本体必须晚登记 —— 早登记会让跨端模组的 Mixin 插件
             //     在平台还没初始化时去用它，直接崩在 "There is no current FML Loader"。
             java.util.List<Path> early =
@@ -479,7 +470,6 @@ public final class Preflight {
             CrossPlatformBridge.setForeignEarlyRuntime(early);
 
             // 原版字节"时才必须 —— 那些字节的静态初始化会回调 FML，
-
             // 没有补丁基座时保持"晚登记"，因为早登记 FML 会让跨端模组的 Mixin 插件
             // 在平台没起来时去用它（那条路会直接崩）。
             String fmlMode = System.getProperty("fusion.fmlState", "auto").trim();

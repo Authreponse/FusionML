@@ -33,7 +33,6 @@ public final class ClassDiff {
     public static void main(String[] args) throws Exception {
 
         // 后者时按本机惯例自己找（与自检同一套来源，避免两边说的不是同一份文件）。
-
         // 而 Path.of 会因为那个字符直接失败（这个坑刚踩过）。
         List<String> clean = new ArrayList<>();
         for (String a : args) {

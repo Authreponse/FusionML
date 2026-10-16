@@ -205,10 +205,8 @@ public final class ConstantPoolTransplant {
                 int subEnd = (int) subEndL;
                 String sub = source.utf8(subName);
                 // StackMapTable 特殊对待：它**不能丢**。
-
                 // 会让带分支的方法在类校验期直接失败：
                 //   VerifyError: Expecting a stackmap frame at branch target 14
-
                 // 原因：类版本 50+ 之后，**有分支就必须有帧**，不能靠隐式推导补出来。
                 // 所以改写不了它就放弃整个方法的搬运（保守），而不是留一个坏方法。
                 if ("StackMapTable".equals(sub)) {
@@ -423,9 +421,7 @@ public final class ConstantPoolTransplant {
                 }
                 int idx = u2(data, p + 1);
                 // 这里必须**主动导入**，而不是"没映射过就放弃"。
-
                 // 踩过一次：StackMapTable 里的类型不一定出现在方法体的指令操作数里
-
                 //   AttachmentHolder.getData 搬不进来（原因：StackMapTable 无法改写）
 
                 if (!ensure(source, target, idx, map)) {
@@ -658,7 +654,6 @@ public final class ConstantPoolTransplant {
         }
 
         // 逐个改对成本高、改错就是坏类。实测：AttachmentHolder 的 attachments 字段
-
         // 注意只对**成员**上的这几个属性这么做；Code 子属性里的同名前缀属性另有处理。
         if ("RuntimeVisibleTypeAnnotations".equals(name)
                 || "RuntimeInvisibleTypeAnnotations".equals(name)
@@ -1177,7 +1172,6 @@ public final class ConstantPoolTransplant {
 
         OP_LENGTH[0x14] = 0;                        
         // 下面这些指令虽然长度固定，但操作数是**常量池索引**，必须走 remapSpecial 去改写。
-
         // 表现就是拼出来的类里索引还是源类的值（实测 1033/1036 越界），
         // 而 JVM 的 defineClass 与 javap 又都能通过，只有宿主平台的 ASM 会崩。
         OP_LENGTH[0xB2] = 0;                        

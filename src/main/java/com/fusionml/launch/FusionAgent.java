@@ -58,7 +58,6 @@ public final class FusionAgent {
         // 前置分析：在平台运行时启动之前，用我们自己的并行引擎完成发现、索引与依赖分析，
         // 并把注入规则装配好。这样做的好处是既不影响平台自己的类加载语义
         // （平台仍以它的启动器为主类），又让"发现 + 索引"这段用上我们的并行实现。
-
         // 注意：这里刻意**不加** && client 之类的判断。服务端也要做前置分析 ——
         // 服务端上模组的发现、依赖与 Mixin 配置同样需要它，只是注入目标不同（见 Preflight）。
         if (Boolean.parseBoolean(System.getProperty("fusion.preflight", "true"))) {

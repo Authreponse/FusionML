@@ -319,7 +319,6 @@ public final class SpliceProbe {
                 System.out.println("   拼接后方法 " + result.methods().length + " 个");
 
                 // 这是对"槽位 vs 项数"那类算术错误最直接的检查：
-
                 // 但宿主平台的 ASM 会以 ArrayIndexOutOfBoundsException 崩在启动期。
                 int maxIdx = 0;
                 for (int i = 1; i < 65536; i++) {
@@ -402,7 +401,6 @@ public final class SpliceProbe {
                 }
 
                 // defineClass 会跑字节码校验器；校验不过就抛 VerifyError/ClassFormatError。
-
                 // 注意不能用反射调 ClassLoader#defineClass：Java 9+ 的模块系统不让
                 // 未命名模块反射进 java.lang（实测报 InaccessibleObjectException）。
 

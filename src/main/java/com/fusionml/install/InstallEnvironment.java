@@ -92,7 +92,6 @@ public final class InstallEnvironment {
         List<String> notes = new ArrayList<>(4);
         Path versionsDir = gameDir.resolve("versions");
         // 版本列表可能有两个来源，两个都要看：
-
         //   2) 用户直接把"某一个版本目录"拖进来（例如 ...\versions\26.3-Fabric 0.19.5），
         //      这时版本列表在它的同级目录里。
         // 只取其一都会踩坑：实测某些实例目录里会自己长出一个空的 versions 子目录，

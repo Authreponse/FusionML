@@ -10,13 +10,9 @@ import java.util.List;
 import java.util.Map;
 
 // 自有游戏类加载器：游戏类与模组类的唯一定义者。
-
 // 为什么必须由我们自己拥有它（而不是沿用平台自带的那一个）：
-
 // "定义游戏类的人只有一个"时才成立。平台各自的类加载器都要求自己做这件事，
-
 //   1) 按 DelegationPolicy 决定委派还是自留 —— 加载器侧单份、游戏与模组自留；
-
 //      并且在这里**唯一**地套用变换管线 —— 未来自有 Mixin 服务也挂在这一个点上；
 //   3) 并行可重入：注册为 parallel-capable，避免类加载器级全局锁把启动串行化。
 public final class FusionGameClassLoader extends ClassLoader implements AutoCloseable {
@@ -52,7 +48,6 @@ public final class FusionGameClassLoader extends ClassLoader implements AutoClos
                 }
                 // 多版本 jar 会在 META-INF/versions/<N>/ 下放同一类的不同版本实现。
                 // 它们不是"另一个类"，而是同一个类在特定 JVM 版本下的覆盖层，
-
                 // （实测报错：wrong name: org/spongepowered/configurate/...）。
                 if (e.name().startsWith("META-INF/")) {
                     continue;
@@ -79,10 +74,8 @@ public final class FusionGameClassLoader extends ClassLoader implements AutoClos
                 return super.loadClass(name, resolve);
             } catch (ClassNotFoundException notThere) {
                 // 父加载器没有 → 退回我们自己定义。
-
                 // 这条回退不是保险丝，而是必需的：委派表按"包语义"划分，
                 // 但同一个包在不同环境里可能由父加载器提供、也可能没有
-
                 // 而在只挂了加载器自身的精简环境里就没有）。写死"必须由父提供"
                 // 会在后一种环境里直接 NoClassDefFoundError。
                 // 先父后己既保证"父有就是单份"，又保证"父没有也能跑"。

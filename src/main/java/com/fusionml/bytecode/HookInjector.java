@@ -196,7 +196,6 @@ public final class HookInjector {
                 }
                 boolean isStatic = (m.access & 0x0008) != 0;
                 // 安全网：钩子签名必须与"目标方法实际会压入栈的参数序列"完全一致。
-
                 // 不一致就跳过并说明，而不是生成一个运行期必然 VerifyError 的类。
 
                 if (!hook.dispatch()) {
@@ -235,11 +234,9 @@ public final class HookInjector {
         }
         byte[] out = cf.toBytes();
         // 改写结果必须自检：把生成的字节重新解析一遍，确认"这个类还是它自己"。
-
         // ClassFormatError 崩掉整个游戏 —— 而报错信息指向的是游戏类，
         // 完全看不出是加载器写坏的（我们正是这么崩过一次：
         // ClassFormatError: Illegal class name "com.fusionml/hud/FusionMainPage"
-
         // 自检不过就宁可放弃这次注入：少一个 HUD 远好过崩游戏。
         try {
             ClassFile check = ClassFile.read(out);
@@ -329,11 +326,9 @@ public final class HookInjector {
 
         // 大类的索引很容易超过 255 —— MinecraftServer 实测就有 4001 项。
         // 超过时必须换 ldc_w（0x13，u2 索引），否则要么编码错位、要么只能放弃注入。
-
         // 实测教训：早先这里直接抛异常"跳过注入"，结果服务端主类 MinecraftServer
         // 的钩子被静默跳过 —— 服务端照样能启动，只是跨端入口点永不生效，
         // 日志里只有一行容易被忽略的"变换失败，已跳过"。
-
         // 所以"前缀栈中立且无分支"这个不变量不受影响，不需要重算栈图。
         o.u1(propRef > 255 ? 0x13 : 0x12);
         if (propRef > 255) {

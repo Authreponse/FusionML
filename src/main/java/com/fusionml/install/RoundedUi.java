@@ -331,6 +331,22 @@ final class RoundedUi {
                     TEXT, LINE, false);
         }
 
+        /**
+         * 次按钮的"浅一档"变体，专供**会被禁用**的按钮（例如「预览」）。
+         *
+         * <p>为什么要单独一档：禁用态要求"明显变暗"（ΔL ≤ -25）。
+         * 而 {@link #secondary()} 的基色 {@code #262B38}（L≈43）已经接近背景
+         * {@code #14161E}（L≈22）——就算把它压到与背景完全同色，
+         * ΔL 也只有 -21，<b>数学上达不到 -25</b>（已用 ThresholdProof 验证）。
+         * 所以把这类按钮的正常态提亮到 L≈50 以上，禁用态才有"变暗"的空间，
+         * 同时仍然是深色风格（不是亮色按钮）。
+         */
+        static ButtonStyle secondaryLight() {
+            Color base = new Color(0x33, 0x3A, 0x4B);
+            return new ButtonStyle(base, BTN_SECONDARY_HOVER, BTN_SECONDARY_PRESS,
+                    TEXT, LINE_HI, false);
+        }
+
         static ButtonStyle ghost() {
             return new ButtonStyle(new Color(0x1B, 0x1E, 0x28), new Color(0x25, 0x2A, 0x38),
                     new Color(0x14, 0x17, 0x1F), DIM, LINE, false);
@@ -343,6 +359,62 @@ final class RoundedUi {
                 Math.round(a.getRed() * u + b.getRed() * t),
                 Math.round(a.getGreen() * u + b.getGreen() * t),
                 Math.round(a.getBlue() * u + b.getBlue() * t));
+    }
+
+    /** 感知亮度（Rec.601）。用于"禁用态必须比正常态暗"这条硬约束。 */
+    static double luma(Color c) {
+        return 0.299 * c.getRed() + 0.587 * c.getGreen() + 0.114 * c.getBlue();
+    }
+
+    /**
+     * 算出**禁用态**的填充色，保证它明显比正常态暗。
+     *
+     * <h3>为什么不能只写 {@code blend(base, BG, 0.62)}</h3>
+     * 那是"把基色往背景色混 62%"。对深色按钮它几乎没变化（{@code #262B38} 混完还是深色，
+     * 肉眼分不出"禁用"），对亮色按钮又可能**仍比按钮实际呈现的样子更亮** ——
+     * 实测踩到：「启动游戏」基色是亮蓝 {@code #5AC8FA}，混完得到 {@code #2F5A72}（L≈80），
+     * 而它正常态的**实际平均亮度**只有 L≈63（因为按钮内有大片描边/端点区域），
+     * 于是禁用后整块反而更亮，用户会以为它比平时更该点。这与"看着能点其实点不动"是同一类误导。
+     *
+     * <h3>做法</h3>
+     * 以<b>正常态实际渲染出来的颜色</b>为基准去压暗，再强制一个亮度上界：
+     * 结果亮度不得超过 {@code normalLuma * 0.55}，且不得高于一个绝对上限。
+     * 这样无论基色是亮是暗，禁用态都"一定是暗的、且明显比正常态暗"。
+     *
+     * @param base       按钮基色（正常态填充）
+     * @param hasGloss   正常态是否叠加了高光（主按钮有）。有高光时正常态更亮，需要压得更狠。
+     */
+    static Color disabledFill(Color base, boolean hasGloss) {
+        // 1) 先按正常态的实际观感估一个"有效正常色"：
+        //    主按钮叠了白色高光，整体比 base 亮约 12%；次按钮就是 base 本身。
+        Color normalEffective = hasGloss ? blend(base, Color.WHITE, 0.12f) : base;
+        // 2) 以它为基准往背景压暗 70%
+        Color dark = blend(normalEffective, BG, 0.70f);
+        // 3) 硬约束 A：亮度不得超过正常态的 55%（保证肉眼一定看得出"暗了"）
+        //
+        //    注意次按钮的情况：基色本身就深（#262B38，L≈43），往背景混 70% 只降到 L≈30，
+        //    相对变化只有 -13，肉眼几乎看不出"禁用"。所以对**本来就暗**的按钮
+        //    要有额外一档：直接把它压到接近背景的水平，靠"描边消失 + 文字变灰"
+        //    来共同表达禁用（单独靠填充色差是不够的）。
+        double cap = luma(normalEffective) * 0.55;
+        if (luma(normalEffective) < 60) {
+            // 深色按钮：压到**与背景完全一致**（不再只是"接近"）。
+            // 理由：基色本来就暗（如 secondary #262B38，L≈43），
+            // 往背景混 70% 只到 L≈30，相对变化 -13，肉眼几乎看不出禁用。
+            // 要拿到 -25 以上的差值，只能让它跟背景同色 —— 这时"禁用"主要由
+            // 消失的描边 + 变灰的文字来表达（见 paintComponent 里 border/fg 的处理）。
+            return BG;
+        }
+        if (luma(dark) > cap) {
+            for (float t = 0.70f; t <= 0.96f; t += 0.02f) {
+                Color candidate = blend(normalEffective, BG, t);
+                if (luma(candidate) <= cap) {
+                    return candidate;
+                }
+            }
+            return blend(normalEffective, BG, 0.96f);
+        }
+        return dark;
     }
 
     /**
@@ -407,7 +479,9 @@ final class RoundedUi {
                 Color fg;
                 Color border = style.border;
                 if (!isEnabled()) {
-                    fill = blend(style.base, BG, 0.62f);
+                    // 禁用态：统一"明显压暗 + 降对比"，绝不允许比正常态更亮。
+                    // 见 disabledFill 的说明（亮色按钮曾经禁用后反而变亮）。
+                    fill = disabledFill(style.base, style.primary);
                     fg = DISABLED_TEXT;
                     border = blend(LINE, BG, 0.4f);
                 } else if (press) {

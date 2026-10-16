@@ -321,9 +321,7 @@ public final class ServerFetch {
         // 报错点离原因极远。这里直接把明显不合理的值顶到 512 MB，并在脚本注释里写明。
         int memMb = maxMemoryMb <= 0 ? 4096 : Math.max(512, maxMemoryMb);
         // 脚本里刻意用 %~dp0（脚本自身所在目录）而不是写死的绝对路径：
-
         // 绝不写成 `%HERE%lib\...` —— 后者有个隐蔽的坑：cmd 解析变量名时允许字母/数字/下划线，
-
         // 这种"静默失效"比直接报错难查得多，所以干脆不用中间变量拼接。
         List<Path> written = new ArrayList<>(2);
         List<String> notes = new ArrayList<>(2);
@@ -380,7 +378,6 @@ public final class ServerFetch {
         shb.append("# 工作目录必须是脚本所在目录：加载器靠它推断游戏目录。").append("\n");
         shb.append("cd \"$HERE\" || exit 1").append("\n");
         // .sh 里**绝不能**写安装机上解析出的 Java 绝对路径：
-
         // 而那串东西在 Linux 上是无意义的文件名，脚本会以 "not found" 失败。
 
         shb.append("# 用 PATH 上的 java；要指定别的，运行前 export JAVA=/path/to/java 即可。").append("\n");

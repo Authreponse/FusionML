@@ -105,7 +105,6 @@ public final class McInstance {
         String name = d.getFileName() == null ? "" : d.getFileName().toString();
         // 先判断"它自己是不是一个版本目录"，判据要够强：
         //   a) 里面就有 <目录名>.json（版本定义），或
-
         // 实测有些游戏目录里会自己长出一个 versions 子目录（模组或游戏写的），
         // 那样就会把版本目录误判成根目录。
         boolean selfIsVersionDir = Files.isRegularFile(d.resolve(name + ".json"))

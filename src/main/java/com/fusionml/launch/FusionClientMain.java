@@ -76,7 +76,6 @@ public final class FusionClientMain {
             if (Files.isDirectory(modsDir)) {
                 // 先引导平台官方运行时（Fabric），再加载模组。
                 // 顺序很重要：模组在 onInitialize 里会调用 FabricLoader.getInstance()、
-
                 // 注意要传"游戏版本"（26.3），不是"版本名"（26.3-Fabric 0.19.5）。
                 // Fabric 用它去校验模组声明的 minecraft 依赖，传版本名会让所有模组都判不满足。
                 Path clientJarPath = clientJarProp.isBlank() ? null : Path.of(clientJarProp);

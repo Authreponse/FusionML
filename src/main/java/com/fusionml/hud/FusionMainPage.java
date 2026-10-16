@@ -6,10 +6,8 @@ import java.util.List;
 import java.util.Locale;
 
 // 主加载页面：加载器接管游戏主界面。
-
 // 做法不是"画在原生主界面上"，而是**把原生主界面收起来**，改由我们整屏渲染：
 // 原生 TitleScreen 一旦出现就把它置空（在下一 tick 做，避免在渲染中改屏幕导致重入），
-
 // 和 FusionHud 一样，这里对游戏 API 的访问全部走反射，避免把加载器 jar 绑死在某个游戏版本上。
 public final class FusionMainPage {
 

@@ -212,7 +212,6 @@ public final class PatchedBase {
         }
 
         // 一个纯 Fabric 整合包不该被换掉原版字节 —— 那是白担风险。
-
         // 先把"禁止提前加载"的黑名单扫出来，再谈要不要换基座。
         // 顺序很重要：这份名单的作用是保护**所有**模组的 Mixin，跟"这次换不换基座"无关 ——
         // 放在 foreign==0 的提前返回之后，纯 Fabric 整合包就得不到保护了。
@@ -255,32 +254,19 @@ public final class PatchedBase {
             log.accept("跨端补丁基座：解析宿主版本定义失败（" + t + "）");
         }
         // 命名空间检查：合并是"按内部名搬运"，只有不混淆的版本才成立。
-
         // 这一步是 1.21.1 / 1.20.1 适配的第一道门。实测那两个版本的 jar 是混淆的
-
         // 与其搬出一份坏包让游戏崩在启动期，不如**在这里就明确说"做不到、需要 remap 层"**。
         if (vanillaJar != null) {
             log.accept("跨端补丁基座：宿主游戏包命名空间 —— " + namespaceReport(vanillaJar));
-            if (!isDeobfuscated(vanillaJar)) {
-                log.accept("跨端补丁基座：这个版本的游戏包是**混淆**的，"
-                        + "而合并是按内部名搬运的（26.3 不混淆所以成立）。"
-                        + "本次**不做合并**，跨端注册将不可用 —— "
-                        + "要在该版本上工作，需要先补上 remap 层（见 README 第十四节）。");
-                return null;
-            }
+            // 混淆版不再直接放弃：下面会用 TSRG2 映射表把对方的 named 名反查成混淆名，
+            // 让"按内部名搬运"这件事在混淆包上同样成立（1.21.1 / 1.20.1 走这条路）。
+            // 真正能不能做由后面的映射表能否载入决定，那里会给明确日志。
         }
-        Path jar = null;
-        String platform = null;
-        Path neo = locate(instance, "neoforge", mcKey);
-        if (neo != null) {
-            jar = neo;
-            platform = "NeoForge";
-        } else {
-            Path forge = locate(instance, "forge", mcKey);
-            if (forge != null) {
-                jar = forge;
-                platform = "Forge";
-            }
+        Path jar = locate(instance, "neoforge", mcKey);
+        String platform = "NeoForge";
+        if (jar == null) {
+            jar = locate(instance, "forge", mcKey);
+            platform = "Forge";
         }
         if (jar == null) {
             log.accept("跨端补丁基座：本机没有 " + mcKey + " 的对方平台补丁原版 jar，"
@@ -291,14 +277,11 @@ public final class PatchedBase {
             // 关键一步：宿主平台模组要 Mixin 的类，一律保留原版字节。
             // 理由不是猜测，是实测出来的：对方平台的补丁原版是"反编译再重新编译"的产物，
             // 方法体里的指令序列与原版并不逐条一致，而 Mixin 的注入点是按指令序列匹配的。
-
             // （报 Critical injection failure ... Scanned 0 target(s)），直接崩在启动阶段。
             // 把这些类留给原版，宿主平台的 Mixin 就还是原来那套输入，行为不变。
             // 这里必须用**模组全集**（含宿主平台的嵌套包缓存），不能用传进来的 modJars。
-
             // 踩过一次，代价是"保护名单看着有 403 个、却恰好漏掉出事的那个模组"：
             // modJars 只有 mods 目录里的 37 个包，而 Fabric 会把嵌套包解到
-
             // fabric-registry-sync-v0 就住在那里 —— 它要 Mixin 的 RegistryDataLoader
 
             java.util.Set<String> keepVanilla = hostMixinTargets(expandModJars(instance, modJars, null), jar, log);
@@ -307,15 +290,17 @@ public final class PatchedBase {
                 return null;
             }
             // 把 libraries 目录交给"接口形状"判据用 —— **必须在 prepare 之前设置**。
-
             // （实测日志：合并在第 14 行，运行时解析在第 44 行），
-
             // 于是 DataComponentMap$Builder 被整类替换，宿主平台的 @Overwrite Mixin 直接崩。
 
             System.setProperty(PROP_LIBRARIES, instance.librariesDir().toAbsolutePath().toString());
             Path base = prepare(jar, vanillaJar,
                     instance.gameDir().resolve(".fusionml").resolve("base"),
                     scope(), keepVanilla, log);
+            if (base == null) {
+                log.accept("跨端补丁基座：本次未产出合并包（见上一行的原因），保持原版字节驱动");
+                return null;
+            }
             System.setProperty(PROP_RESOLVED, base.toAbsolutePath().toString());
             log.accept("跨端补丁基座：" + platform + " 的补丁原版 " + jar.getFileName()
                     + " 已排在原版 jar 之前（" + foreign + " 个跨端模组包需要它）");
@@ -459,9 +444,7 @@ public final class PatchedBase {
         Path out = cacheDir.resolve("merged-base-" + stamp + ".jar");
         if (Files.isRegularFile(out) && Files.size(out) > 0) {
             // 命中缓存。
-
             // 但必须**显式说一句**："这次没重新合并"。踩过一次：改了合并规则却忘了
-
             // 而真机跑的还是旧产物 —— 白跑了一整轮（150 秒 + 一次崩溃分析）。
 
             log.accept("跨端补丁基座：命中合并缓存（本次未重新合并）→ " + out.getFileName()
@@ -498,15 +481,48 @@ public final class PatchedBase {
         // 每次真正合并前清空：诊断列表不能跨次累积，否则第二次运行会报出上次的残留。
         INTERFACE_MISSES.clear();
         INTERFACE_CACHE.clear();
+        // 这两个索引都依赖"当前的补丁 jar 是哪一个"，换包必须重建 ——
+        // 否则第二次合并会拿上一次的索引去查新包，表现为"莫名读不到某个类"。
+        ENTRY_OWNER.clear();
+        ENTRY_OWNER_READY = false;
+        FOREIGN_NEW_INDEX = null;
 
-        java.util.Map<String, Path> overlay = new java.util.LinkedHashMap<>(1024);
+        // 键 = 宿主（原版包）里的条目名；值 = 对方补丁 jar 里对应的条目名。
+        // 不混淆时两者相同；混淆版本上键是 obf 名、值是 named 名，必须分别记住 ——
+        // 只存一个字符串会让"取对方字节"那一步全部落空。
+        java.util.Map<String, String> overlay = new java.util.LinkedHashMap<>(2048);
 
         // 这不是可选优化，是必须的一步：补丁后的 Registry 头部指向 IRegistryExtension，
-
         // 会以 NoClassDefFoundError 收场（实测：日志里能同时看到"IRegistryExtension 由宿主定义成功"
         // 和"定义 Registry 时解析 IRegistryExtension 失败"）。先把这些对方类型预热解析掉，
         // 顺序就成立了。
         java.util.Set<String> foreignTypes = new java.util.TreeSet<>();
+
+        // 混淆宿主（1.21.1 / 1.20.1）时的"命名空间对齐"。
+        //
+        // 合并是按**内部名**配对两侧条目的：overlay 用对方补丁 jar 的条目名做键，
+        // 再拿同一个键去原版 jar 里找对应类。26.3 不混淆，两侧名字天然一致，所以成立。
+        // 但 1.21.1 的实测情况是：
+        //   · 宿主原版 1.21.1.jar         = 混淆（fyn / geo$b / fbp$a …）
+        //   · 对方覆盖层 neoforge-…-client.jar = named（net/minecraft/CrashReport …）
+        // 两侧名字对不上 → overlay 的键在原版 jar 里一个都找不到 → 合并静默产出空结果。
+        //
+        // 解法：用自研 TSRG2 映射表（com.fusionml.remap.MappingTable）把对方条目名
+        // 反查回混淆名，用**混淆名**当 overlay 的键。这样两侧就对齐了。
+        //
+        // 找不到映射表时**不报错**：不混淆的版本不需要它，缺了它只是回到旧行为（该版本不做合并）。
+        com.fusionml.remap.MappingTable names = null;
+        if (vanillaJar != null && !isDeobfuscated(vanillaJar)) {
+            names = openMappingFor(vanillaJar, log);
+            if (names == null) {
+                log.accept("跨端补丁基座：宿主是混淆版，但没找到可用的映射表 → 本次不做合并。"
+                        + "（映射表通常在 libraries 下的 neoform / mcp_config 目录里）");
+                return null;
+            }
+            log.accept("跨端补丁基座：已载入映射表（类 " + names.classCount()
+                    + " 条），将把对方 named 名反查成混淆名后对齐");
+        }
+
         try (FastZip pz = FastZip.open(patchedJar)) {
             for (FastZip.Entry e : pz.entries()) {
                 if (!e.isClass() || e.isDirectory()) {
@@ -516,36 +532,37 @@ public final class PatchedBase {
                     continue;
                 }
                 String internal = e.name().substring(0, e.name().length() - ".class".length());
+                // 混淆宿主：把对方的 named 内部名反查成宿主用的混淆名。
+                // 反查不到就跳过这个条目 —— 宁可不合并，也不要用一个错名字去配对
+                // （配对错了会把两个不相干的类拼在一起，那种崩法极难定位）。
+                String overlayKey = e.name();
+                if (names != null) {
+                    String obf = names.obfOf(internal);
+                    if (obf == null) {
+                        continue;
+                    }
+                    internal = obf;
+                    overlayKey = obf + ".class";
+                }
                 // 宿主要 Mixin 的类一律保留原版字节 —— 注意这里**不能**再加 `all &&` 的条件。
-
                 // 这里踩过一个代价很大的坑：原来写的是 `if (all && keepVanilla.contains(...))`，
-
                 // 后果实测：net.minecraft.resources.RegistryDataLoader 明明在保留名单里
-
                 // 正确语义：**无论整份还是收窄，模组的注入目标都必须保留原版字节**。
                 // 这是硬约束：Mixin 的注入点按指令序列匹配，而对方那份补丁是反编译再编译的，
-
                 // 但有一类例外，而且必须是例外：**对方平台 API 契约真正落脚的那些类**。
-
                 //   · 它是某个宿主模组的 Mixin 目标（所以"保护名单"里有它）；
-
                 // 如果因为"它在保护名单里"就保留原版字节，接口就丢了，跨端注册直接退回
-
                 // 实测就是这么互为掣肘：保护名单从 403 扩到 783 之后，
-
                 // 取舍规则：**API 契约优先于注入点保护**。
                 // 理由是两者的失败方式不同 —— 丢了接口是"对方模组的模组跑不起来"（硬失败），
-
                 // 注册表模型里是根，不能赌。
                 // 【这里曾经有一个 `continue`，它绕过了后面所有精细判据 —— 已移除】
-
                 // 实测后果：`ArgumentTypeInfos` 在保护名单里（某个宿主 Mixin 打它），
                 // 于是它没进 overlay；而对方平台自己的 `NeoForgeMod` 静态初始化里调
-
                 //     at net.neoforged.neoforge.common.NeoForgeMod.lambda$static$0
                 // 启动直接崩。而它本来是可以"拼接"的（原版 8 个方法全留 + 补进对方的第 9 个）。
 
-                overlay.put(e.name(), patchedJar);
+                overlay.put(overlayKey, e.name());
                 try {
                     ClassFile cf = ClassFile.read(pz.read(e));
                     collectForeignHeaderTypes(cf, foreignTypes);
@@ -560,13 +577,19 @@ public final class PatchedBase {
         Path tmp = cacheDir.resolve(out.getFileName() + ".tmp");
 
         // 为什么不能边写边记：ZIP 里的条目顺序没有保证，`Foo$14` 完全可能排在 `Foo` 前面，
-
         // 而这正是实测崩溃（ByteBufCodecs$14 构造器对不上）的成因。
         try (FastZip vz2 = FastZip.open(vanillaJar); FastZip pz2 = FastZip.open(patchedJar)) {
-            for (String entry : overlay.keySet()) {
+            for (java.util.Map.Entry<String, String> ov : overlay.entrySet()) {
+                // overlay 的键是**宿主（混淆）名**，因为合并产物要落回原版包；
+                // 而对方补丁 jar 里是 **named 名**，两边不是同一个字符串。
+                // 混淆版本上必须用 overlay 里记下的"对方原始条目名"去取字节 ——
+                // 直接拿混淆键去 pz2 找会全部落空，合并产物里就只剩那几个
+                // 本来就不混淆的类（实测：1554 个可选条目最后只进去了 5 个）。
+                String entry = ov.getKey();
+                String foreignEntry = ov.getValue();
                 String in = entry.substring(0, entry.length() - ".class".length());
                 FastZip.Entry ve2 = vz2.entry(entry);
-                FastZip.Entry pe2 = pz2.entry(entry);
+                FastZip.Entry pe2 = pz2.entry(foreignEntry);
                 if (ve2 == null || pe2 == null) {
                     continue;
                 }
@@ -575,43 +598,33 @@ public final class PatchedBase {
                     byte[] pb2 = pz2.read(pe2);
 
                     //  但 net.minecraft.world.level.Level 也被换，于是 c2me 的 MixinWorld
-
                     //  于是我改成"超类变了 + 又是 Mixin 目标 → 保留原版"，
                     //  结果第二次崩在：
                     //    VerifyError: Bad type on operand stack
-
                     // 使用它的代码都会在校验期失败（硬崩）；而保留原版又会让宿主模组的
-
                     // 用对方字节（对方是"提供 API 的一方"，它的字节必须自洽），
 
                     if (superclassChanged(vb, pb2)) {
 
                         // 这一条是"两个致命选项之间"的最后判据，实测出来的：
-
                         //     VerifyError: 'MappedRegistry' is not assignable to 'BaseMappedRegistry'
                         //     —— 硬崩，没有选择余地。
-
                         //     c2me 的 MixinWorld 注入点抹掉了：
                         //       Scanned 0 target(s) → SharedConstants.<clinit> 崩 → 进程退出
-
                         // 有 → 必须换；没有 → 保留原版（宿主注入点优先）。
                         boolean foreignNeedsNewSuper = foreignUsesAsNewSuperclass(
                                 in, pb2, pcfFor(pb2));
                         // 目标改成"**先能启动**"之后，这里的取舍规则跟着变了。
-
                         // 之前的规则是"对方按新超类用它 → 整类换"，理由是避免 VerifyError。
                         // 但实测有一条硬约束是它没覆盖的：
-
                         //   可它**同时是宿主模组 fabric-content-registries 的 Mixin 目标**，
                         //   换成对方字节就让那个注入点匹配 0 个目标 → 启动即崩：
                         //     fluid.EntityMixin checkIfUnderSwimmableFluid ... Scanned 0 target(s)
                         //     → Minecraft has crashed!
-
                         // 两个都是硬需求时，能不能跑起来只取决于**哪一边会立刻崩**：
                         //   · 保留原版 → 宿主 Mixin 能注入，游戏能起来；
                         //     代价是跨端模组调 `setData` 时缺方法（可诊断、且不是启动期硬崩）。
                         //   · 换对方字节 → 宿主 Mixin 注入失败，**游戏根本起不来**。
-
                         // 所以：**宿主 Mixin 目标一律保留原版**，除非对方对它的依赖
                         // 会导致宿主那些字节**必然校验失败**（`MappedRegistry` 就是这种：
                         // 对方按新超类使用它，不换就是 VerifyError）。
@@ -643,7 +656,6 @@ public final class PatchedBase {
                         continue;
                     }
                     // 宿主 Mixin 目标 + **接口**被对方改过（超类没变）→ 拼接做不到，
-
                     // 预扫必须做出同样的判断，否则匿名兄弟会跟错宿主。
                     // 注意：超类变过的情况**不在这里** —— 那种必须整类换（见上）。
                     if (keepVanilla != null && keepVanilla.contains(in)
@@ -684,13 +696,13 @@ public final class PatchedBase {
 
                     continue;
                 }
-                FastZip.Entry pe = overlay.containsKey(e.name()) ? pz.entry(e.name()) : null;
+                // 遍历的是**原版包**的条目，所以 e.name() 是宿主（混淆）名；
+                // 对方补丁 jar 里对应的条目要用 overlay 记下的那个名字去取。
+                String foreignEntry = overlay.get(e.name());
+                FastZip.Entry pe = foreignEntry == null ? null : pz.entry(foreignEntry);
                 // 这个类的内部名：后面几个判据（Mixin 目标保护、拼接）都要用它。
-
                 // 注意要先判"是不是 .class" —— 目录条目与非类资源的名字可能很短
-
                 // 实测踩过一次：StringIndexOutOfBoundsException: Range [0, -2) out of bounds，
-
                 // "补丁基座准备失败（保持原版字节）" —— 整个合并白做，症状离原因很远。
                 String internal = null;
                 if (e.isClass() && !e.isDirectory()
@@ -719,28 +731,20 @@ public final class PatchedBase {
                                 + "，结构性冲突=" + STRUCTURAL_CONFLICTS.contains(internal));
                     }
                     // 匿名内部类必须与它的宿主类**同进同退**。
-
                     // 这一条是踩出来的，代价是一次自检崩溃：
-
                     // 原因：`ByteBufCodecs` 走"只新增 → 保留原版/拼接"，而它的匿名兄弟
-
                     // 匿名类的编号（$1、$14）是编译器按出现顺序分配的，两次独立编译
                     // 里同一个编号不是同一个逻辑类，所以**它们不能各自独立地决定用谁的字节**：
                     // 宿主用谁的，兄弟就必须用谁的。
                     String outer = anonymousOuterOf(internal);
                     // 注意：**这里不要再对 STRUCTURAL_CONFLICTS 做"保留原版"的早退出**。
-
                     // 踩过一次：上一轮"结构性冲突"的语义是"保留原版"，
-
                     // 后来把语义改成"仍要整类换、只是记录牺牲"（因为超类变化必然 VerifyError），
-
                     // 崩在 VerifyError: 'MappedRegistry' is not assignable to 'BaseMappedRegistry'。
-
                     //   MappedRegistry：Mixin目标=true，超类变=true，预处理保留=false，结构性冲突=true
                     // 预扫已经负责"记录"，写入循环只该负责"执行"，两者不能各有一套语义。
                     // 宿主类这次是"保留原版/拼接"的话，匿名兄弟也必须保留原版 ——
                     // 否则原版的方法会去 new 一个已经换成对方字节的匿名类，构造器签名对不上。
-
                     // 所以不受 zip 条目顺序影响。
                     if (outer != null && KEPT_VANILLA.contains(outer)) {
                         writer.addRaw(e.name(), e.method(), e.crc(), e.size(), vz.readRaw(e));
@@ -753,9 +757,7 @@ public final class PatchedBase {
                     // 因为整类换会把对方**新增**的方法带进原版类，而宿主平台模组的
                     // @Overwrite 型 Mixin 是按"原版没有这个方法"写的，于是崩在
                     //   InvalidMixinException: get(Lnet/minecraft/core/component/DataComponentType;)...
-
                     // （实测：fabric-item-api-v1 的 overwrites.requireAnnotations=true 就是这么崩的）
-
                     // 当前这轮先做**安全的那一半**：只新增的类保留原版字节。
                     // 代价是对方模组看不到那些新增的 API 方法；好处是宿主平台不崩。
                     // 这是明确取舍，不是遗漏 —— 后续要做的是"把新增成员拼进原版字节"，
@@ -764,35 +766,27 @@ public final class PatchedBase {
                     if (onlyAdds) {
 
                         // 也不能保留原版 —— 实测：Holder 只是多实现了 IHolderExtension
-
                         // 可对方版本的 Registry 会调 Holder.getKey()，而那是通过
 
                         boolean ifaceChanged = interfacesChanged(vz.read(e), pz.read(pe));
 
                         // 这一步是必须的，不能用"保留原版"糊过去 —— 实测：
-
                         // 按"只新增"判据它会保留原版；但对方版本的
 
                         boolean spliceSafe = !superclassChanged(vz.read(e), pz.read(pe))
                                 && !ifaceChanged;
                         // 接口变了的类要分两种，不能一刀切 —— 这是一次回归换来的教训。
-
                         //  · Holder 多了 IHolderExtension（纯 default）：**必须**用对方字节，
                         //    因为对方版本的 Registry 会调 Holder.getKey()（那个接口提供的
-
                         //    （也是纯 default）：**必须**保留原版字节，否则宿主平台的
                         //    @Overwrite Mixin 崩（fabric-item-api-v1 的 requireAnnotations）。
-
                         //  1) 这个类是不是宿主模组 Mixin 的目标（keepVanilla）——
                         //     是 → 换掉会直接崩掉某个模组的注入点，风险最高，优先保留原版；
-
                         // 这个组合判据在实测的两个反例上都给出了正确答案，
 
                         boolean mixinProtected = keepVanilla != null && keepVanilla.contains(internal);
                         // "必然崩"的接口判据要放在 Mixin 保护**之前**。
-
                         // 踩过一次：Registry 既是宿主 Mixin 目标、又被对方当 IRegistryExtension
-
                         // 那是**没有选择余地**的硬崩（Java 的 lambda 接收者转换在运行期检查），
                         // 而"换对方字节"最多是 Mixin 注入点失配（可能崩、且我们会记进报告）。
                         // 所以这条必须优先。
@@ -802,12 +796,9 @@ public final class PatchedBase {
                         boolean callersUse = !ifaceFatal && foreignCallersUse(ClassFile.read(vz.read(e)),
                                 ClassFile.read(pz.read(pe)), patchedJar);
                         // 裁决顺序（**Mixin 保护优先**，这是"先能启动"目标下的硬规则）：
-
                         //     宿主平台自己的代码（实测 Holder 的对方内部类 Holder$Reference 调 getKey）。
                         //  2) 否则 → 保留原版（Mixin 能注入，启动不崩）。
-
                         // 注意：`ifaceFatal`（对方把本类当新接口类型接收）**不能**压过 Mixin 保护。
-
                         // 宿主 Mixin 撞名（`get` 已存在）→
                         //   InvalidMixinException: ... because @Overwrite is required
                         //   → 启动崩。
@@ -817,13 +808,10 @@ public final class PatchedBase {
                         boolean ifaceNeeded = ifaceChanged
                                 && (callersUse || (!mixinProtected && ifaceFatal));
                         // 还有一种情况：这个类是 Mixin 目标，但**它的 Mixin 不声明任何方法名**。
-
                         // 那种 Mixin 只会 @Inject/@Redirect 到已有方法，**不会"创建"新方法**，
                         // 所以整类换不会引起 `@Overwrite is required` 撞名 —— 可以安全地换。
-
                         // 实测 Registry：它在保护名单里，Mixin 声明的方法名是**空集**，
                         // 而对方（yumi_mc_core 的 NeoForge 路径）把它当 IRegistryExtension 接收。
-
                         // ——启动必崩。既然它的 Mixin 不声明方法名、换了也不会撞，
                         // 那就必须换。
                         boolean mixinDeclaresNoMethod = mixinProtected && ifaceFatal
@@ -854,15 +842,12 @@ public final class PatchedBase {
                         byte[] withExtras = spliceSafe
                                 ? spliceNewMethods(vz.read(e), pz.read(pe), internal) : null;
                         // Mixin 目标类还要多一道检查：**拼接进来的方法名不能撞上 Mixin 自己声明的方法**。
-
                         // 实测（ClientCommonPacketListenerImpl）：
                         //   fabric-networking-api-v1 的 accessor Mixin 要"创建" getConnection()，
                         //   而对方（NeoForge）**也已经加了同名方法**；我们把对方那个拼进去之后，
                         //   Mixin 发现目标类上已经有这个方法，就要求用 @Overwrite：
                         //     InvalidMixinException: getConnection()... cannot overwrite method
-
                         //   → MixinApplyError → BootstrapMethodError → 启动崩。
-
                         // 和之前 DataComponentMapBuilderMixin 那次是同一类问题，
                         // 结论也一样：**对方新增的方法名与 Mixin 要注入/创建的方法名冲突时，
                         // 只能纯保留原版**（拼接会替 Mixin 把方法先占掉）。
@@ -911,9 +896,7 @@ public final class PatchedBase {
                     //     （实测：RegistryDataLoader 的 @ModifyArg 报 could not find any
                     //     targets，因为 NeoForge 把 load(...) 重载成了 5 个参数，
                     //     而 Mixin 按原版 4 参数签名找）。
-
                     //     实测 CustomPacketPayload：
-
                     //       而 Fabric 的 networking API（MixinExtras 桥接）还在按 2 参数调：
 
                     boolean vanillaMethodMissing = vanillaMethodMissingFromPatched(
@@ -921,10 +904,8 @@ public final class PatchedBase {
                     if ((keepVanilla != null && keepVanilla.contains(internal))
                             || vanillaMethodMissing) {
                         // 但在拼接之前必须先排除两类"拼接做不到"的改动：
-
                         //     对方的字节按新超类编译，会崩在
                         //     VerifyError: Bad type on operand stack ... not assignable to
-
                         //     （实测：yumi_mc_core 的 NeoForge 路径就是这么崩的，
 
                         boolean splicesafe = !superclassChanged(vz.read(e), pz.read(pe))
@@ -946,17 +927,12 @@ public final class PatchedBase {
                         }
 
                         // 裁决顺序（每一条都是实测换来的）：
-
                         //     实测 Level/c2me：换掉就是 Scanned 0 target(s)）；
-
                         //     → 也保留原版。目标改成"先能启动"之后的取舍：
                         //     实测 Entity 的补丁字节真的调了 setData（判据为真），
                         //     但它同时是 fabric-content-registries 的 Mixin 目标 ——
-
                         //     （不换必然 VerifyError，实测 MappedRegistry/RegistryBuilder）；
-
                         //     实测 LivingEntity/fabric-content-registries）。
-
                         // 注意这一段的判据必须与**预扫**完全一致，否则会出现
                         // "预扫说保留、写入循环说换"的分岔（昨天踩过一次）。
                         if (superclassChanged(vz.read(e), pz.read(pe))) {
@@ -985,9 +961,7 @@ public final class PatchedBase {
                         }
 
                         // 但有一条**必须优先**的例外：对方把这个类**当成新增接口类型**接收
-
                         // —— 没有选择余地，必须换对方字节。
-
                         // 实测：Registry 就落在这个兜底分支（它接口变过、又是 Mixin 目标），
                         // 之前一律保留原版 → 启动崩在 yumi_mc_core 的 NeoForge 路径上。
                         java.util.Set<String> addedIfaces =
@@ -1022,15 +996,10 @@ public final class PatchedBase {
                         continue;
                     }
                     // 最后一道路障：**整类换也不能让宿主 Mixin 撞名**。
-
                     // 实测（DataComponentMap$Builder）：它不在保留名单里（黑名单没覆盖到
-
                     // Mixin 的 DataComponentMapBuilderMixin 想"创建"同名方法时就变成"覆盖"，
-
                     //   InvalidMixinException: get(...) cannot overwrite method in
-
                     //   → MixinApplyError → BootstrapMethodError → 启动崩。
-
                     // 判据不看"是否在保留名单"，而是直接看**这个类的 Mixin 声明了哪些方法名**，
                     // 以及**对方字节里新增了哪些同名方法** —— 有交集就必须保留原版，
                     // 让 Mixin 自己去创建那些方法。
@@ -1119,11 +1088,8 @@ public final class PatchedBase {
                     + String.join("、", risk.subList(0, Math.min(5, risk.size()))));
         }
         // 预热名单最后过一道安全闸：**凡是模组 Mixin 要注入的目标，一律从名单里剔掉**。
-
         // 但"只收接口"是一个**基于经验的判据**（接口极少是注入目标），而不是硬保证 ——
-
         // 宿主平台模组的 Mixin 目标清单是我们自己算出来的（hostMixinTargets），
-
         // 事故原文（yumi_mc_core 的 DeferredRegisterMixin，见 collectForeignHeaderTypes 注释）：
         // MixinTargetAlreadyLoadedException ... was loaded too early.
         if (!foreignTypes.isEmpty() && keepVanilla != null && !keepVanilla.isEmpty()) {
@@ -1180,7 +1146,6 @@ public final class PatchedBase {
                 have.add(v.utf8(m.nameIndex) + v.utf8(m.descIndex));
             }
             // 能不能连构造器一起拼？条件是"对方保留了原版的全部构造器签名"。
-
             // 只有这样才安全：对方的新构造器是**纯新增的重载**，
 
             boolean canSpliceConstructors = true;
@@ -1215,14 +1180,10 @@ public final class PatchedBase {
                 }
 
                 // 理由：它们的语义与这个类自己的初始化顺序绑在一起，直接搬会让同一个对象
-
                 // 【但有例外，而且是必须的例外】
-
                 // NoSuchMethodError。实测 TicketType：
                 //   NeoForgeMod 注册 TicketType 时调 <init>(long, int, boolean)，
-
                 //       at net.neoforged.neoforge.common.NeoForgeMod.lambda$static$70
-
                 //   · 原版**有**构造器（说明它不是纯 record 合成体，链路可控）；
                 //   · 对方**保留了原版的全部构造器签名**（否则说明对方改过构造语义，
 
@@ -1257,7 +1218,6 @@ public final class PatchedBase {
             SPLICE_ATTEMPTED.put(internal, attempted);
 
             // 实测就是这么崩的（TicketType 是个 record，对方新增了一个组件字段，
-
             // 只在**构造器可以安全拼接**时搬字段：否则"一半字段按原版、一半按对方"，
             // 对象状态会自相矛盾。字段搬运本身是安全的（新增字段不影响原有成员）。
             int fieldsAdded = 0;
@@ -1663,38 +1623,87 @@ public final class PatchedBase {
      */
     private static boolean foreignNeedsStrictSuperclassType(String internal, byte[] patchedBytes) {
         try {
-            java.util.List<Path> sources = new ArrayList<>(4);
-            Path pj = patchedJarOf();
-            if (pj != null) {
-                sources.add(pj);
+            java.util.Set<String> idx = foreignNewIndex();
+            if (idx == UNUSABLE) {
+                // 索引不可信时保持原实现的保守语义：按"必须跟对方"处理。
+                // 这条回退不能省 —— 原代码在读取出错时正是 return true，
+                // 少了它就会把"本该整类换"的类改成保留原版，产出校验不过的包。
+                return true;
             }
-            sources.addAll(runtimeJars());
-            for (Path src : sources) {
-                try (FastZip z = FastZip.open(src)) {
-                    int scanned = 0;
-                    for (FastZip.Entry e : z.entries()) {
-                        if (!e.isClass() || e.isDirectory() || ++scanned > 8000) {
-                            continue;
-                        }
-                        try {
-                            ClassFile cf = ClassFile.read(z.read(e));
-                            if (cf.newsClass(internal)) {
-                                return true;
-                            }
-                        } catch (Throwable ignored) {
-
-                        }
-                    }
-                } catch (Throwable ignored) {
-
-                }
-            }
-            return false;
+            return idx.contains(internal);
         } catch (Throwable t) {
-            // 出错时保守：按"必须跟对方"处理（宁可整类换，也不要拼出校验不过的类）
             return true;
         }
     }
+
+    /** 索引建表不可用时的哨兵：含义是"任何查询都按保守值回答"。 */
+    private static final java.util.Set<String> UNUSABLE = java.util.Set.of();
+
+    /**
+     * "对方 new 过哪些类"的索引，只建一次。
+     *
+     * <h2>为什么必须有这个缓存（这是个实测抓到的性能事故）</h2>
+     *
+     * <p>原实现是"每次调用都重新解压对方 jar + 全部 runtime jar，最多扫 8000 个类"，
+     * 只为在字节里找一句 {@code new <本类>}。而调用点在 8269 个类的合并循环里，
+     * 每个"超类变了且是 Mixin 目标"的类都会调一次 —— 于是变成
+     * O(被裁决的类数 × 8000) 次解压 + 解析。
+     *
+     * <p>实测后果：1.21.1 的合并**跑了 15 分钟还没结束**（正常应在 4 分钟内）。
+     * 用 {@code jstack} 抓到主线程就停在这里：
+     * <pre>
+     *   PatchedBase.prepare(PatchedBase.java:628)
+     *     → foreignNeedsStrictSuperclassType(PatchedBase.java:1635)
+     *       → FastZip.read → FastZip.readInto
+     * </pre>
+     * 注意当时是 CPU 密集（2 分钟烧了 131 秒 CPU），不是死锁 ——
+     * 这类"不是卡死只是极慢"的问题从日志上完全看不出来，只能靠线程转储定位。
+     *
+     * <p>这个索引只依赖对方平台的 jar，与"当前正在裁决哪个类"无关，
+     * 所以完全可以一次建好复用。
+     */
+    private static java.util.Set<String> foreignNewIndex() {
+        java.util.Set<String> cached = FOREIGN_NEW_INDEX;
+        if (cached != null) {
+            return cached;
+        }
+        java.util.Set<String> out = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        java.util.List<Path> sources = new ArrayList<>(4);
+        Path pj = patchedJarOf();
+        if (pj != null) {
+            sources.add(pj);
+        }
+        sources.addAll(runtimeJars());
+        boolean usable = true;
+        for (Path src : sources) {
+            try (FastZip z = FastZip.open(src)) {
+                int scanned = 0;
+                for (FastZip.Entry e : z.entries()) {
+                    if (!e.isClass() || e.isDirectory() || ++scanned > 8000) {
+                        continue;
+                    }
+                    try {
+                        ClassFile cf = ClassFile.read(z.read(e));
+                        for (String target : cf.newTargets()) {
+                            out.add(target);
+                        }
+                    } catch (Throwable ignored) {
+                        // 单个类读不出来不影响整体索引。
+                    }
+                }
+            } catch (Throwable ignored) {
+                // 整个 jar 读不出来 → 索引不完整，不能拿它回答"没有 new"
+                // （那会把本该整类换的类误判成保留原版）。标记为不可用。
+                usable = false;
+            }
+        }
+        java.util.Set<String> result = usable ? out : UNUSABLE;
+        FOREIGN_NEW_INDEX = result;
+        return result;
+    }
+
+    /** 见 {@link #foreignNewIndex()}。volatile + 后写发布，避免重复建表。 */
+    private static volatile java.util.Set<String> FOREIGN_NEW_INDEX;
 
     private static final java.util.Map<String, String> HOOK_TRACE =
             new java.util.concurrent.ConcurrentHashMap<>();
@@ -1936,7 +1945,6 @@ public final class PatchedBase {
 
                 // 而 <clinit> 我们并不桥接（它的语义和"这个类自己的初始化顺序"绑在一起）。
                 // 硬搬一个 static final 会连 ConstantValue 属性一起带过来 —— 实测报
-
                 // 那些方法会通过 CP 直接引用 NeoForge 的静态字段，不需要本类再有一份）。
                 if ((f.access & 0x0008) != 0) {
                     continue;
@@ -2111,20 +2119,15 @@ public final class PatchedBase {
 
             // JVM 的 defineClass 也过，但宿主平台的类加载流水线用的是 ASM，
             // 而 ASM 对**属性结构**更严格。实测崩在
-
             // 原因是"丢弃属性时没把属性计数减掉"：属性头写了 0 长度、计数却还是原值，
-
             // 所以必须借 ASM 当第二双眼睛（它本来就在类路径上，宿主平台自己要用）。
             String asmWhy = asmParseCheck(classBytes);
             if (asmWhy != null) {
                 return "ASM 解析失败：" + asmWhy;
             }
             // 用**已验证过的那个扫描器**来走字节码，而不是在这里再写一份。
-
             // 把好端端的拼接**误判成失败**并退回整类换 —— 比没有自检更糟。
-
             // 而拼接产物里原版常量池是原样搬过去的 —— 索引本来就该在那里，不需要映射。
-
             // 实测 ArgumentTypeInfos 就是被这个假错挡住的：它明明能拼、也被拼出来了，
             // 却被自检否掉退回纯原版 → 对方 NeoForgeMod 调 registerByClass 时
 
@@ -2838,11 +2841,8 @@ public final class PatchedBase {
             }
 
             // 实测踩到（Holder）：
-
             //   因为 Holder$Reference 走的是原版字节，它照着原版编译结果去调
-
             // 教训：判断"这个接口方法必须存在吗"，不能只看对方平台 ——
-
             // 注意这里要传**名字集合**而不是"名字+描述符"：
 
             java.util.Set<String> wantedNames = new java.util.HashSet<>();
@@ -2874,10 +2874,8 @@ public final class PatchedBase {
             }
 
             // 但**对方版本的 Holder$Reference** 调 `Holder.getKey()`（对方自己写的实现）。
-
             //   Registry 是宿主 Mixin 目标（所以前面被 `!mixinProtected` 挡住 → 保留原版），
             //   可对方（yumi_mc_core 的 NeoForge 路径）会做
-
             //   —— **必然崩，没有选择余地**。
             // 而"换对方字节"最多是 Mixin 注入点失配（可能崩、且被我们记进报告）。
             // 两害相权，必然崩的那边不能选。
@@ -2898,31 +2896,79 @@ public final class PatchedBase {
 
     private static volatile Path CURRENT_PATCHED_JAR;
 
-    private static ClassFile readFromJars(String entry) {
+    /**
+     * "条目名 → 它在哪个 jar 里"的索引，避免每次都解析中央目录。
+     *
+     * <h2>为什么必须有它（第二个实测抓到的性能事故）</h2>
+     *
+     * <p>原实现是"每读一个条目，就把对方 jar 与全部 runtime jar 各打开一次、
+     * 解析一遍中央目录"。而调用点在 8269 个类的合并循环里，被
+     * {@code foreignUsesAsNewSuperclass} / {@code receiverIndex} 等判据反复调用 ——
+     * 于是变成 O(类数 × jar 的条目数) 次中央目录解析。
+     *
+     * <p>实测：1.21.1 的合并**跑了 15 分钟仍未结束**（正常应 30 秒内）。
+     * {@code jstack} 连抓三次，主线程分别停在这三处，全部指向同一个根因：
+     * <pre>
+     *   FastZip.parseCentralDirectory → PatchedBase.readFromJars:2911
+     *   FastZip.parseCentralDirectory → PatchedBase.readFromJars:2911
+     *     （经 foreignUsesAsNewSuperclass:1559 → prepare:610）
+     *   FastZip.readInto → PatchedBase.receiverIndex:2607
+     * </pre>
+     *
+     * <p>注意这是**第二处**同类问题：先前 {@code foreignNeedsStrictSuperclassType}
+     * 也是每次重扫全部 jar，已单独改成 {@link #foreignNewIndex()} 预建索引。
+     * 两处的共同教训是：**"每次调用都重新打开 jar"的写法，一旦进了逐类循环就是灾难**，
+     * 而且它表现为"极慢"而不是"报错"，日志上完全看不出来。
+     *
+     * <p>只缓存"名字 → jar"的映射（小），不长期持有 FastZip 句柄（避免文件句柄泄漏）。
+     */
+    private static final java.util.Map<String, Path> ENTRY_OWNER =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
-        // 顺序不能反也不能漏：对方**超类**（如 AttachmentHolder）住在 NeoForge 的
-        // universal 包里，而不是打补丁的原版包里 —— 只查前者会报"读不到对方超类"，
-        // 桥接就直接放弃了（实测第一次跑就是这样）。
-        Path jar = CURRENT_PATCHED_JAR;
-        if (jar != null) {
-            try (FastZip z = FastZip.open(jar)) {
-                FastZip.Entry e = z.entry(entry);
-                if (e != null) {
-                    return ClassFile.read(z.read(e));
+    /** 索引是不是已经建好了。 */
+    private static volatile boolean ENTRY_OWNER_READY;
+
+    private static void buildEntryOwnerIndex() {
+        if (ENTRY_OWNER_READY) {
+            return;
+        }
+        java.util.List<Path> sources = new ArrayList<>(8);
+        Path pj = CURRENT_PATCHED_JAR;
+        if (pj != null) {
+            sources.add(pj);
+        }
+        sources.addAll(runtimeJars());
+        for (Path src : sources) {
+            try (FastZip z = FastZip.open(src)) {
+                for (FastZip.Entry e : z.entries()) {
+                    if (e.isDirectory()) {
+                        continue;
+                    }
+                    // 同一个名字出现在多个 jar 时保留**先出现的** —— 与
+                    // readFromJars 原来的查找顺序一致（补丁包优先于 runtime）。
+                    ENTRY_OWNER.putIfAbsent(e.name(), src);
                 }
             } catch (Throwable ignored) {
-
+                // 某个 jar 读不了就跳过，其余仍然有用。
             }
         }
-        for (Path rt : runtimeJars()) {
-            try (FastZip z = FastZip.open(rt)) {
-                FastZip.Entry e = z.entry(entry);
-                if (e != null) {
-                    return ClassFile.read(z.read(e));
-                }
-            } catch (Throwable ignored) {
+        ENTRY_OWNER_READY = true;
+    }
 
+    private static ClassFile readFromJars(String entry) {
+        // 先建索引（只建一次），之后每次读条目都只打开那一个 jar。
+        buildEntryOwnerIndex();
+        Path owner = ENTRY_OWNER.get(entry);
+        if (owner == null) {
+            return null;
+        }
+        try (FastZip z = FastZip.open(owner)) {
+            FastZip.Entry e = z.entry(entry);
+            if (e != null) {
+                return ClassFile.read(z.read(e));
             }
+        } catch (Throwable ignored) {
+            // 读不出来按"没有"处理，与原来的语义一致。
         }
         return null;
     }
@@ -3161,14 +3207,10 @@ public final class PatchedBase {
                 return false;
             }
             // 接口的判据要分两种，不能一刀切"接口变了就整类换" —— 这一条是踩出来的。
-
             // 反例一（必须用对方字节）：net.minecraft.core.Registry 多了 IRegistryExtension。
-
             // 反例二（必须保留原版字节）：net.minecraft.core.component.DataComponentMap$Builder
-
             //   而把它带进原版类，宿主平台的 @Overwrite Mixin 就会失败：
             //   InvalidMixinException: get(Lnet/minecraft/core/component/DataComponentType;)...
-
             //   （fabric-item-api-v1.mixins.json:DataComponentMapBuilderMixin）
 
             if (!java.util.Objects.equals(interfaceKey(v), interfaceKey(p))) {
@@ -3412,10 +3454,8 @@ public final class PatchedBase {
         }
 
         // 方向不能反，这是踩出来的：这个方法的调用点在"保护名单命中"那一支上 ——
-
         // 如果读不到时返回 false，结果就是"因为读不到，所以把 API 契约丢了"，
         // 实测后果是 VerifyError：
-
         // 反过来，读不到却当"必需"的代价只是"这个类的注入点保护没生效"，
         // 而且如果真的发生了，日志里那行"取舍"会把它写出来（可诊断）。
         if (!couldRead) {
@@ -3825,38 +3865,209 @@ public final class PatchedBase {
     }
 
     /**
+     * 为混淆版宿主找并载入 TSRG2 映射表。
+     *
+     * <p>映射表不在版本定义里（是对方平台构建工具留下的中间产物），所以按目录规律找。
+     * 实测本机存在的两处：
+     * <ul>
+     *   <li>NeoForge：{@code libraries/net/neoforged/neoform/<mcver>-<ts>/…-mappings-merged.txt}</li>
+     *   <li>Forge/MCP：{@code libraries/de/oceanlabs/mcp/mcp_config/<mcver>-<ts>/…-mappings-merged.txt}</li>
+     * </ul>
+     * 只认 {@code -merged} 那份：未合并的那份缺一部分继承来的映射，用它会出现
+     * "大部分类能换、少数换不出来"的随机失败，比整体失败更难查。
+     *
+     * <p>版本号从原版 jar 的所在目录名推出来（{@code …/versions/<id>/<id>.jar}），
+     * 不额外要求调用方传参 —— 调用方这时手上只有 jar 路径。
+     */
+    private static com.fusionml.remap.MappingTable openMappingFor(
+            Path vanillaJar, java.util.function.Consumer<String> log) {
+        // versions/<id>/<id>.jar → 取 <id>，再截出 Minecraft 版本号。
+        Path verDir = vanillaJar.getParent();
+        if (verDir == null) {
+            return null;
+        }
+        String mcKey = mcVersionOf(verDir.getFileName().toString());
+        // libraries 目录：往上一级是 versions/，再上一级就是 .minecraft，其下即 libraries。
+        Path gameDir = verDir.getParent() == null ? null : verDir.getParent().getParent();
+        if (gameDir == null) {
+            return null;
+        }
+        Path libs = gameDir.resolve("libraries");
+        if (!Files.isDirectory(libs)) {
+            return null;
+        }
+        List<Path> roots = List.of(
+                libs.resolve("net/neoforged/neoform"),
+                libs.resolve("de/oceanlabs/mcp/mcp_config"));
+        for (Path root : roots) {
+            if (!Files.isDirectory(root)) {
+                continue;
+            }
+            List<Path> hits = new ArrayList<>(4);
+            try (DirectoryStream<Path> dirs = Files.newDirectoryStream(root)) {
+                for (Path d : dirs) {
+                    if (!Files.isDirectory(d)) {
+                        continue;
+                    }
+                    String name = d.getFileName().toString();
+                    // 版本目录名形如 "1.21.1-20240808.144430"：按 mcKey 前缀比对。
+                    // 同时容忍去前导 "1." 的写法（NeoForge 侧常用 21.1.x）。
+                    String alt = mcKey.startsWith("1.") ? mcKey.substring(2) : null;
+                    if (!versionMatches(name, mcKey) && !versionMatches(name, alt)) {
+                        continue;
+                    }
+                    try (DirectoryStream<Path> files =
+                                 Files.newDirectoryStream(d, "*mappings-merged.txt")) {
+                        for (Path f : files) {
+                            hits.add(f);
+                        }
+                    }
+                }
+            } catch (IOException ignored) {
+                continue;
+            }
+            if (hits.isEmpty()) {
+                continue;
+            }
+            hits.sort(Comparator.comparing(p -> p.getParent().getFileName().toString()));
+            Path chosen = hits.get(hits.size() - 1);
+            try {
+                return com.fusionml.remap.MappingTable.open(chosen);
+            } catch (Throwable t) {
+                log.accept("跨端补丁基座：映射表载入失败（" + chosen.getFileName() + "）：" + t);
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 从版本目录名里截出 Minecraft 版本号。
+     *
+     * <p>{@code "1.21.1-NeoForge_21.1.249"} → {@code "1.21.1"}；
+     * {@code "26.3-Fabric 0.19.5"} → {@code "26.3"}。
+     * 取到第一个 {@code -} / {@code _} / 空格为止。
+     */
+    private static String mcVersionOf(String versionId) {
+        if (versionId == null) {
+            return "";
+        }
+        String s = versionId.trim();
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '-' || c == '_' || c == ' ') {
+                return s.substring(0, i);
+            }
+        }
+        return s;
+    }
+
+    /**
      * 找本机同版本的"补丁原版 jar"。
      *
-     * <p>它不在版本定义里（是对方平台自己的引导器直接起的），所以按目录规律找：
-     * NeoForge 是 {@code libraries/net/neoforged/minecraft-client-patched/<版本>/}。
-     * 只在与当前 {@code mcKey}（例如 {@code 26.3}）同小版本的目录里挑，
+     * <p>它不在版本定义里（是对方平台自己的引导器直接起的），所以按目录规律找，
+     * 有<b>两种</b>布局，实测都遇到过：
+     * <ol>
+     *   <li>{@code libraries/net/neoforged/minecraft-client-patched/<版本>/}
+     *       —— 26.x 用这种，jar 名里带 {@code patched}，是完整的补丁原版包；</li>
+     *   <li>{@code libraries/net/neoforged/neoforge/<版本>/neoforge-<版本>-client.jar}
+     *       —— 1.21.1 用这种。实测这个 jar 里 1603 个类中 1562 个是
+     *       {@code net/minecraft/**}（被补丁的原版，named 命名空间），
+     *       也就是"覆盖在混淆原版之上的 named 覆盖层"。</li>
+     * </ol>
+     * 只在与当前 {@code mcKey}（例如 {@code 26.3}）同版本的目录里挑，
      * 跨小版本借基座比不借还糟。
+     *
+     * <p>两种布局的命名空间不同（前者在不混淆版本上与宿主一致，后者恒为 named），
+     * 调用方用 {@code isDeobfuscated} + 映射表兜住这个差异。
      */
     public static Path locate(McInstance instance, String platform, String mcKey) {
-        String group = "neoforge".equals(platform)
-                ? "net/neoforged/minecraft-client-patched"
-                : "net/neoforged/minecraft-client-patched";
-        Path dir = instance.librariesDir().resolve(group);
+        Path patched = locateIn(instance.librariesDir()
+                .resolve("net/neoforged/minecraft-client-patched"), mcKey, true, null);
+        if (patched != null) {
+            return patched;
+        }
+        // 回退到 NeoForge 的 client jar（1.21.1 那种布局）。
+        // 只认 "-client.jar"：同目录还有 universal / installer 等，它们不含补丁原版。
+        //
+        // **必须优先选"实例真正在用的那个补丁号"**。实测踩过：libraries 下同时存在
+        // 21.1.194 … 21.1.256 十二个版本，若按"目录名最大的那个"挑，会拿到 21.1.256，
+        // 而实例跑的是 21.1.249 —— 等于用一个不同补丁号的基座去合并，
+        // 正是本方法注释里说的"跨小版本借基座比不借还糟"。
+        // 实例的版本号从 fusion.version（启动器传入）里取，形如
+        // "1.21.1-NeoForge_21.1.249"。
+        return locateIn(instance.librariesDir().resolve("net/neoforged/neoforge"),
+                mcKey, false, neoforgePatchOf(System.getProperty("fusion.version", "")));
+    }
+
+    /**
+     * 从实例版本 id 里截出对方平台的补丁号。
+     *
+     * <p>{@code "1.21.1-NeoForge_21.1.249"} → {@code "21.1.249"}。
+     * 取第一个下划线/短横线之后的、形如 {@code \d+\.\d+\.\d+} 的那一段。
+     * 拿不到就返回 null（调用方退化为"选同小版本里最新的"，与旧行为一致）。
+     */
+    private static String neoforgePatchOf(String versionId) {
+        if (versionId == null || versionId.isBlank()) {
+            return null;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("(\\d+\\.\\d+\\.\\d+)").matcher(versionId);
+        // 第一个匹配通常是 Minecraft 版本（1.21.1），补丁号在后面；
+        // 用"最后一次匹配"更稳：21.1.249 出现在 1.21.1 之后。
+        String last = null;
+        while (m.find()) {
+            last = m.group(1);
+        }
+        return last;
+    }
+
+    /**
+     * 在某个 group 目录下按版本挑 jar。
+     *
+     * @param patchedOnly   true 时只认文件名含 {@code patched} 的；
+     *                      false 时只认 {@code -client.jar}
+     * @param exactPatch    对方平台的补丁号（如 {@code 21.1.249}）；非空时**优先**选它，
+     *                      找不到才退化为"同小版本里最新的"
+     */
+    private static Path locateIn(Path dir, String mcKey, boolean patchedOnly, String exactPatch) {
         if (!Files.isDirectory(dir)) {
             return null;
         }
+        // 版本号有两套写法，必须都认：
+        //   · Minecraft 侧 "1.21.1"（mcKey 的形状）
+        //   · NeoForge 侧 "21.1.249"（去掉了前导的 "1."，并把补丁号并进第二段）
+        // 实测踩点：neoforge 的目录叫 21.1.249，而 mcKey 是 1.21.1，
+        // 只比 mcKey 前缀会一个都匹配不到 → 静默"找不到补丁基座"。
+        String alt = mcKey != null && mcKey.startsWith("1.") ? mcKey.substring(2) : null;
         List<Path> hits = new ArrayList<>(4);
+        List<Path> exact = new ArrayList<>(2);
         try (DirectoryStream<Path> versions = Files.newDirectoryStream(dir)) {
             for (Path v : versions) {
                 if (!Files.isDirectory(v)) {
                     continue;
                 }
                 String name = v.getFileName().toString();
-                if (mcKey != null && !mcKey.isBlank() && !name.startsWith(mcKey + ".")
-                        && !name.startsWith(mcKey)) {
+                if (!versionMatches(name, mcKey) && !versionMatches(name, alt)) {
                     continue;
                 }
-                try (DirectoryStream<Path> files =
-                             Files.newDirectoryStream(v, "*.jar")) {
+                boolean isExact = exactPatch != null && !exactPatch.isBlank()
+                        && name.equals(exactPatch);
+                try (DirectoryStream<Path> files = Files.newDirectoryStream(v, "*.jar")) {
                     for (Path f : files) {
                         String n = f.getFileName().toString().toLowerCase(Locale.ROOT);
-                        if (n.contains("patched")) {
-                            hits.add(f);
+                        boolean keep;
+                        if (patchedOnly) {
+                            keep = n.contains("patched");
+                        } else {
+                            keep = n.endsWith("-client.jar");
+                        }
+                        if (!keep) {
+                            continue;
+                        }
+                        hits.add(f);
+                        if (isExact) {
+                            exact.add(f);
                         }
                     }
                 }
@@ -3864,8 +4075,36 @@ public final class PatchedBase {
         } catch (IOException e) {
             return null;
         }
+        // 有精确补丁号且找到了，就用它 —— 这是"实例正在跑的那一份"。
+        if (!exact.isEmpty()) {
+            exact.sort(Comparator.comparing(p -> p.getParent().getFileName().toString()));
+            return exact.get(exact.size() - 1);
+        }
         hits.sort(Comparator.comparing(p -> p.getParent().getFileName().toString()));
         return hits.isEmpty() ? null : hits.get(hits.size() - 1);
+    }
+
+    /**
+     * 目录名是否属于某个版本键。
+     *
+     * <p>版本目录有两种后缀写法，都要认：
+     * <ul>
+     *   <li>{@code 21.1.249} —— 补丁号继续用点分（NeoForge 的 neoforge 目录）</li>
+     *   <li>{@code 1.21.1-20240808.144430} —— 用短横线接构建时间戳（映射表目录）</li>
+     * </ul>
+     * 只认其中一种会静默匹配不到 —— 实测踩过：映射表目录名用短横线，
+     * 而匹配器只接受点号，于是"找不到映射表"，看起来像映射表不存在。
+     *
+     * <p>同时刻意<b>不</b>接受裸前缀：{@code startsWith("1.21.1")} 会把
+     * {@code 1.21.10} / {@code 1.21.11} 也匹配进来，跨小版本借基座比不借还糟。
+     */
+    private static boolean versionMatches(String name, String key) {
+        if (key == null || key.isBlank()) {
+            return false;
+        }
+        return name.equals(key)
+                || name.startsWith(key + ".")
+                || name.startsWith(key + "-");
     }
 
     /** 版本定义里的 Minecraft 版本键（例如 {@code 26.3-Fabric 0.19.5} → {@code 26.3}）。 */

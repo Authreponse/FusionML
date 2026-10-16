@@ -90,7 +90,6 @@ public final class FusionHud {
         System.out.println("[FusionML/探针] Minecraft.run() 钩子已触发（游戏主循环开始）");
         gameLoopStarted = true;
         // 跨类加载器的信号：必须用 JVM 级属性，不能用静态字段。
-
         // 原因：FusionHud 会被**两份**类加载器各加载一次 ——
         // premain 阶段是系统加载器那份，游戏里的钩子跑的是平台类加载器那份。
 
@@ -114,7 +113,6 @@ public final class FusionHud {
             try {
                 // 兜底路径。说清楚它的性质：Mixin 的配置是在**阶段切换时定型**的，
                 // 而游戏主循环开始时那些切换早就走完了，所以这个时机注册进来的配置
-
                 // 至少在这里留下一条能看出问题的记录"，而不是假装还能补救。
                 var r = com.fusionml.mixin.FusionMixinRegistry.register(
                         FusionHud.class.getClassLoader(), configs, System.out::println);

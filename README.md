@@ -139,21 +139,39 @@ Mixin 又必须看到那个类的原版字节时，两边都要、Java 又不给
 
 ## 下载与安装
 
-每个目标版本一份独立产物（版本之间有设定不可能一样，比如需要的 Java 主版本）：
+**只有一个安装器**：`fusion-installer.jar`。它内嵌了全部 5 个版本的加载器，
+你在界面上选哪一版，它就部署哪一版的 loader（各版本的 Java 主版本与平台适配不同，
+所以不能只嵌一个通用版）。
+
+打开界面后：选游戏目录 → 点「重新体检」→ 在「安装到版本」下拉框里选版本 → 安装。
+
+```powershell
+java -jar fusion-installer.jar --gui
+```
+
+它会在安装前做**两道验证**，并且**版本不符时直接拒绝安装**：
+
+1. **目录体检** —— 这个目录是不是标准的 `.minecraft` 布局、有没有写入权限；
+2. **版本一致性** —— 下拉框里选的版本，必须与目录 `versions/` 下**实际存在的版本**相符。
+   不符就禁用「一键安装」，并在状态条与日志里写明是哪两者不符。
+
+> 为什么要有第二道：版本目录是玩家自己起的（`26.3-Fabric 0.19.5`、`1.21.1-NeoForge_21.1.249` …），
+> 而下拉框里的版本是"目标版本"。两者对不上时，装进去的 loader 与游戏实例不是一套，
+> 起来之后会以各种奇怪的方式失败。与其装完再排错，不如**装之前就拒绝**。
+>
+> 判据基于**目录里真实存在的版本**，不是你在下拉框里选了什么 —— 因为下拉框的内容本身
+> 就可能与目录不符，那正是要抓的情形。
+
+只想要加载器本体（自己已有启动流程）的话，单独的 loader jar 也照常提供：
 
 | 产物 | Java | 平台 |
 | --- | --- | --- |
-| `fusion-ml-26.3.jar` / `fusion-installer-26.3.jar` | 25 | Fabric / NeoForge |
-| `fusion-ml-26.2.jar` / `fusion-installer-26.2.jar` | 25 | Fabric / NeoForge |
-| `fusion-ml-26.1.2.jar` / `fusion-installer-26.1.2.jar` | 25 | Fabric |
-| `fusion-ml-1.21.1.jar` / `fusion-installer-1.21.1.jar` | 21 | Fabric / NeoForge |
-| `fusion-ml-1.20.1.jar` / `fusion-installer-1.20.1.jar` | 17 | Fabric / Forge |
-
-**双击安装器即可**（图形界面），或者命令行：
-
-```powershell
-java -jar fusion-installer-26.3.jar --game-dir "D:\...\.minecraft" --inherit "26.3-Fabric 0.19.5"
-```
+| `fusion-ml-26.3.jar` | 25 | Fabric / NeoForge |
+| `fusion-ml-26.2.jar` | 25 | Fabric / NeoForge |
+| `fusion-ml-26.1.2.jar` | 25 | Fabric |
+| `fusion-ml-1.21.1.jar` | 21 | Fabric / NeoForge |
+| `fusion-ml-1.20.1.jar` | 17 | Fabric / Forge |
+| `fusion-ml.jar` | 按实例 | 不绑定版本的通用版 |
 
 安装只做新增、不覆盖已有文件；卸载按安装清单精确还原，整合包自带的模组/配置/存档不会被碰。
 

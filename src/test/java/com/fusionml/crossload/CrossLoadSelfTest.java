@@ -49,9 +49,7 @@ public final class CrossLoadSelfTest {
         List<URL> urls = new ArrayList<>();
 
         // 这就是本自检能复现/验证注册表那条链路的前提 —— 少了它，
-
         // 顺序不能反：合并时要判断"对方新增的接口是不是对方模组硬依赖的"
-
         // 于是 273 个类会被整类换掉，宿主平台的 @Overwrite Mixin 就会崩。
         // 这个顺序在真机路径上也是对的（CrossPlatformBridge 先解析运行时再合并）。
         ForeignRuntime.Found runtime = ForeignRuntime.resolve(instance, "neoforge", mcKey,

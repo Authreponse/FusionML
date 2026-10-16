@@ -85,7 +85,6 @@ public final class FabricPlatformAdapter implements PlatformAdapter {
                     }
                 } catch (ClassNotFoundException e) {
                     // 该接口不在当前运行环境里 —— 明确说明，而不是让玩家看到一坨堆栈。
-
                     // 否则报告会被同一条提示刷屏，真正的问题反而被淹掉。
                     notes.add("运行环境未提供 " + ifaceName
                             + "，已跳过入口点调用（入口点类已正常实例化，说明类加载、依赖解析与三端适配都是通的）");

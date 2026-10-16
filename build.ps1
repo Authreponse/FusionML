@@ -119,29 +119,21 @@ $manifest = Join-Path $root "build\MANIFEST.MF"
 Pop-Location
 Write-Host "[build] Artifact: $outJar" -ForegroundColor Green
 
-# Installer jar: everything from the loader build PLUS the loader jar embedded as a
-# resource, so the installer can deploy the loader from anywhere it is run.
-$stage = Join-Path $root "build\installer-staging"
-$stageRes = Join-Path $stage "META-INF\fusionml"
-New-Item -ItemType Directory -Force -Path $stageRes | Out-Null
-Copy-Item -Recurse -Force (Join-Path $outMain "*") $stage
-Copy-Item -Force $outJar (Join-Path $stageRes "fusion-ml.jar")
-Push-Location $stage
-& $jar --create --file $outInstaller --main-class com.fusionml.install.FusionInstaller .
-Pop-Location
-Write-Host "[build] Artifact: $outInstaller" -ForegroundColor Green
-
 # ---------------------------------------------------------------------------
 # Per-version loader jars.
 #
-# Why one jar per version: a few settings CANNOT be the same across the supported
-# game versions (required Java major: 26.x wants 25, 1.20.1 wants 17; and whether the
-# game jar is obfuscated at all). Baking those into code means "either all right or
-# all wrong". Instead each jar carries its own factory defaults as manifest
-# attributes, and every one of them stays overridable by an explicit -D property.
+# The game versions differ in ways that cannot be inferred at runtime (required Java
+# major: 26.x wants 25, 1.20.1 wants 17; and whether the game jar is obfuscated at
+# all). Baking those into code means "either all right or all wrong". Instead each jar
+# carries its own factory defaults as manifest attributes, and every one of them stays
+# overridable by an explicit -D property.
 #
 # Naming: fusion-ml-<target>.jar  e.g. fusion-ml-26.3.jar, fusion-ml-1.20.1.jar
 # The generic fusion-ml.jar is still produced above (unbound; keeps old behaviour).
+#
+# NOTE: this block runs BEFORE the generic installer is packaged, because that single
+# installer embeds all five loader jars (see below). Previously the per-version
+# installers each embedded their own loader, so the order did not matter.
 $targets = @(
     @{ Id = "26.3";   Java = "25" },
     @{ Id = "26.2";   Java = "25" },
@@ -172,26 +164,29 @@ foreach ($t in $targets) {
 }
 
 # ---------------------------------------------------------------------------
-# Per-version installers.
+# Installer jar (SINGLE, all versions).
 #
-# Each installer embeds ITS OWN loader jar (not the generic one), so "download the
-# 1.20.1 installer" already means "this deploys the 1.20.1 loader". The target id is
-# also written as a file, which is what the GUI reads to show "this installer is for X".
+# Everything from the loader build PLUS every per-version loader jar embedded as a
+# resource. The GUI lets the player pick a version, and extractLoader() pulls the
+# matching fusion-ml-<id>.jar out of META-INF/fusionml/loaders/. That is what makes
+# "one installer for all versions" actually correct: embedding only the generic
+# loader would deploy a jar without the version's Java/platform defaults.
+$stage = Join-Path $root "build\installer-staging"
+$stageRes = Join-Path $stage "META-INF\fusionml"
+$stageResAll = Join-Path $stageRes "loaders"
+if (Test-Path $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $stageResAll | Out-Null
+Copy-Item -Recurse -Force (Join-Path $outMain "*") $stage
+Copy-Item -Force $outJar (Join-Path $stageRes "fusion-ml.jar")
 foreach ($t in $targets) {
-    $stage = Join-Path $root ("build\installer-stage-" + $t.Id)
-    if (Test-Path $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
-    New-Item -ItemType Directory -Force -Path (Join-Path $stage "META-INF\fusionml") | Out-Null
-    Copy-Item -Recurse -Force (Join-Path $outMain "*") $stage
     Copy-Item -Force (Join-Path $root ("build\fusion-ml-" + $t.Id + ".jar")) `
-        (Join-Path $stage "META-INF\fusionml\fusion-ml.jar")
-    Set-Content -Path (Join-Path $stage "META-INF\fusionml\target.txt") -Value $t.Id -Encoding ASCII
-    $outInst = Join-Path $root ("build\fusion-installer-" + $t.Id + ".jar")
-    Push-Location $stage
-    & $jar --create --file $outInst --main-class com.fusionml.install.FusionInstaller .
-    Pop-Location
-    if ($LASTEXITCODE -ne 0) { throw "Failed to build installer for $($t.Id)" }
-    Write-Host "[build] Artifact: $outInst" -ForegroundColor Green
+        (Join-Path $stageResAll ("fusion-ml-" + $t.Id + ".jar"))
 }
+Push-Location $stage
+& $jar --create --file $outInstaller --main-class com.fusionml.install.FusionInstaller .
+Pop-Location
+Write-Host "[build] Artifact: $outInstaller" -ForegroundColor Green
+
 
 if ($RunBench) {
     Write-Host "[build] Running self-test and benchmark..." -ForegroundColor Cyan

@@ -73,7 +73,6 @@ public final class MetadataReader {
         }
         // MANIFEST 的 MixinConfigs 属性：Forge/NeoForge 生态里这才是主流的声明方式。
         // 实测证据：Iceberg-26.2-forge 的 mods.toml 里一条 [[mixins]] 都没有，
-
         // 现象是"模组在列表里、Mixin 却完全没生效"，很难往"元数据没读全"上想。
         String manifestConfigs = manifestAttrs.get("mixinconfigs");
         if (manifestConfigs != null && !manifestConfigs.isBlank()) {

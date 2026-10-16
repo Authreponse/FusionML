@@ -73,7 +73,6 @@ public final class LaunchPlan {
             sb.append("真实主类    : ").append(realMainClass).append(System.lineSeparator());
 
             // 上面那个"真实主类"是版本定义里写的（客户端启动器），服务端模式下我们会把它
-
             // 踩过一次：加了服务端主类切换后，只看"真实主类"那行，误以为没生效；
             // 第一次修这个诊断时又取错了位置（命令行最后一项是版本号，不是主类），
 
@@ -202,7 +201,6 @@ public final class LaunchPlan {
         }
 
         // 为什么必须替代而不是旁挂：宿主平台 0.19 起给类路径分了组，只有"游戏包"那一组里的
-
         // （报 "hasn't been exposed to the game"），补丁等于没生效，而现象离原因很远。
         // 替代之后，补丁就长在游戏包里，宿主平台的 Mixin 依旧叠在它之上：
 
@@ -241,7 +239,6 @@ public final class LaunchPlan {
         // 我们通过 javaagent 的 premain 前置介入，而不是顶替它 ——
         // 平台的类加载语义（Mixin、入口点注入、类路径分组）与它的启动器不可分割，
         // 顶替它就必须复刻整套语义，代价与风险都远高于收益。
-
         // 例外：**服务端**。版本定义里写的永远是客户端的启动器
         // （实测 `--server` 时仍打印 `真实主类: net.fabricmc.loader.impl.launch.knot.KnotClient`），
         // 而服务端要用同一个平台的服务端启动器。这不是"顶替平台"，
@@ -346,9 +343,7 @@ public final class LaunchPlan {
         }
         if (!System.getProperty(com.fusionml.crossload.PatchedBase.PROP_RESOLVED, "").isBlank()) {
             // 宿主平台的"类路径隔离"只允许它认定的那份游戏包提供 net.minecraft.*。
-
             // 补丁等于没生效，而现象离原因很远（实测踩过）。
-
             // （原版包已经不在类路径上了），所以放行是安全的。
             jvm.add("-Dfabric.debug.disableClassPathIsolation");
         }
@@ -358,9 +353,7 @@ public final class LaunchPlan {
             jvm.add("-D" + com.fusionml.crossload.PatchedBase.PROP_RESOLVED + "=" + base);
         }
         // 模组 Mixin 的目标清单也要**显式交给游戏进程**。
-
         // 这里踩过一次，代价是一整局启动崩掉，所以写下来：
-
         // 漏传的后果不是"少一条日志"，而是：游戏进程里的诊断/预热代码读不到这份黑名单，
         // 于是照旧提前加载了模组的 Mixin 目标，报
         // "MixinTargetAlreadyLoadedException ... DeferredRegister was loaded too early"，
@@ -372,7 +365,6 @@ public final class LaunchPlan {
         }
         // 黑名单的文件通道。**这里只传路径，不传名单本身** —— 实测踩过一次：
         // 本整合包扫出 846 个 Mixin 目标，拼成 -D 参数约 34KB，超过 Windows 命令行上限，
-
         // 而日志里没有崩溃也没有报错，看起来像"问题自己好了"，极具迷惑性。
         String targetsFile = System.getProperty(
                 com.fusionml.crossload.PatchedBase.PROP_TARGETS_FILE, "");

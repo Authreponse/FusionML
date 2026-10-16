@@ -69,7 +69,6 @@ public final class CpCountProbe {
                 System.out.println("   原版：可读最大索引=" + maxIndex(v)
                         + "，cpSlotCount=" + v.extraCpStats()[2]);
                 // 关键：原版的**最后一个可用槽位**是不是就是 cpSlotCount-1？
-
                 // "ClassFormatError: bad constant pool index" 的典型成因。
                 System.out.println("   原版最后 4 个常量：");
                 for (int i = Math.max(1, maxIndex(v) - 3); i <= maxIndex(v) + 2; i++) {

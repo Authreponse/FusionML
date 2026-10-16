@@ -205,12 +205,15 @@ public final class FusionInstaller {
         // 2) 释放加载器本体
         Path loaderTarget = InstanceLayout.loaderJar(gameDir);
         if (o.dryRun) {
-            out.accept("将释放加载器：" + loaderTarget);
+            out.accept("将释放加载器：" + loaderTarget
+                    + "（按目标版本 " + (o.inheritVersion.isBlank() ? "未指定" : o.inheritVersion)
+                    + " 选取）");
         } else {
-            long bytes = extractLoader(loaderTarget);
+            long bytes = extractLoader(loaderTarget, o.inheritVersion);
             if (bytes > 0) {
                 out.accept(String.format(Locale.ROOT, "已释放加载器：%s（%.0f KB）",
                         gameDir.relativize(loaderTarget), bytes / 1024.0));
+                out.accept("  来源：" + LOADER_SOURCE.get());
                 manifest.add("file=" + InstanceLayout.LOADER_JAR_RELATIVE);
             } else {
                 out.accept("警告：没有找到内嵌的加载器 jar。开发模式下请先运行 build.ps1 生成 "
@@ -392,19 +395,61 @@ public final class FusionInstaller {
      * <p>优先从安装器 jar 内部读取（这样安装器被放到哪都能用）；
      * 开发模式下没有内嵌资源，则退回读 {@code build/fusion-ml.jar}。
      *
+     * <h2>单一安装器要装多个版本</h2>
+     *
+     * <p>以前是"每个版本一个安装器 jar"，各自内嵌自己那份 loader，路径固定为
+     * {@code /META-INF/fusionml/fusion-ml.jar}。现在合并成一个安装器，
+     * 它必须<b>按用户选中的版本</b>去取对应的 loader —— 否则拿 26.3 的 loader
+     * 去装 1.20.1 的实例，会因为 Java 主版本与平台适配不同而直接跑不起来。
+     *
+     * <p>所以查找顺序是：
+     * <ol>
+     *   <li>{@code /META-INF/fusionml/loaders/fusion-ml-<版本>.jar}（分版本内嵌）；</li>
+     *   <li>{@code /META-INF/fusionml/fusion-ml.jar}（旧的单版本布局，向后兼容）；</li>
+     *   <li>{@code build/fusion-ml-<版本>.jar} → {@code build/fusion-ml.jar}（开发模式）。</li>
+     * </ol>
+     *
+     * @param target  写到哪里
+     * @param version 用户选中的目标版本 id（可为 null，此时只走通用回退）
      * @return 写入的字节数；0 表示没找到来源
      */
-    private static long extractLoader(Path target) throws IOException {
+    private static long extractLoader(Path target, String version) throws IOException {
         byte[] data = null;
-        try (InputStream in = FusionInstaller.class.getResourceAsStream(EMBEDDED_LOADER)) {
-            if (in != null) {
-                data = in.readAllBytes();
+        String used = null;
+        if (version != null && !version.isBlank()) {
+            String specific = "/META-INF/fusionml/loaders/fusion-ml-" + version.trim() + ".jar";
+            try (InputStream in = FusionInstaller.class.getResourceAsStream(specific)) {
+                if (in != null) {
+                    data = in.readAllBytes();
+                    used = "内嵌（按版本）" + specific;
+                }
             }
         }
         if (data == null) {
-            Path dev = Path.of("build", "fusion-ml.jar");
-            if (Files.isReadable(dev)) {
+            try (InputStream in = FusionInstaller.class.getResourceAsStream(EMBEDDED_LOADER)) {
+                if (in != null) {
+                    data = in.readAllBytes();
+                    used = "内嵌（通用）" + EMBEDDED_LOADER;
+                }
+            }
+        }
+        if (data == null) {
+            Path dev = null;
+            if (version != null && !version.isBlank()) {
+                Path v = Path.of("build", "fusion-ml-" + version.trim() + ".jar");
+                if (Files.isReadable(v)) {
+                    dev = v;
+                }
+            }
+            if (dev == null) {
+                Path g = Path.of("build", "fusion-ml.jar");
+                if (Files.isReadable(g)) {
+                    dev = g;
+                }
+            }
+            if (dev != null) {
                 data = Files.readAllBytes(dev);
+                used = "开发目录 " + dev;
             }
         }
         if (data == null) {
@@ -412,8 +457,12 @@ public final class FusionInstaller {
         }
         Files.createDirectories(target.getParent());
         Files.write(target, data);
+        LOADER_SOURCE.set(used == null ? "未知" : used);
         return data.length;
     }
+
+    /** 上一次 {@link #extractLoader} 用的是哪份来源（日志里如实报出来）。 */
+    private static final ThreadLocal<String> LOADER_SOURCE = new ThreadLocal<>();
 
     /**
      * 注册启动器版本。

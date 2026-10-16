@@ -149,12 +149,10 @@ public final class CrossPlatformBridge {
             addToHostClassPath(host, jars);
         }
         // 对方平台 API 的那一拨必须在这里（原版引导之前）就位：
-
         // 这一拨里**不含** FML 引导本体，所以不会把跨端模组的 Mixin 插件带进
         // "There is no current FML Loader" 那个启动崩溃（见下面的长注释）。
         List<Path> earlyRuntime = readPaths(PROP_EARLY_RUNTIME);
         // 用了补丁原版基座时，对方平台的引导包（FML）这一拨也必须在原版引导之前就位，
-
         // 这不是"能早则早"：早晚都可以的时候我们选择晚（见下面的长注释），
 
         List<Path> fmlRuntime = List.of();
@@ -187,15 +185,11 @@ public final class CrossPlatformBridge {
             }
         }
         // 注意：跨端"运行时"包里**含 FML 引导本体**的那一拨故意不在这里登记。
-
         // 这件事踩过一次，值得写下来：如果在宿主平台准备 Mixin 配置之前就把对方平台的
         // **FML 引导本体**放到类路径上，跨端模组里那些 Mixin 插件、Mixin 类就会
-
         // "There is no current FML Loader" —— 结果是启动直接崩
         // （类根本找不到时 Mixin 只记一笔就继续）。
-
         // 见 CrossLoad#onGameReady；而不含它的那一拨必须早登记（上面刚做完）。
-
         // Mixin 配置进同一个服务。
         // 用**宿主平台的类加载器**：混入类与配置资源都要由它来解析，
         // 拿错了加载器会得出"资源找不到"这种与事实相反的结论（第一次就是这么误判的）。
@@ -310,7 +304,6 @@ public final class CrossPlatformBridge {
             return addToFabricClassPath(jars);
         }
         // NeoForge / Forge 走的不是"运行时加类路径"，而是 ModLauncher 的层（layer）机制：
-
         // （见 LaunchPlan），这里如实说明而不是假装成功。
         System.out.println("[FusionML/跨端] " + host
                 + " 的类路径由启动参数决定，跨端包已在启动时写入 legacyClassPath");

@@ -11,19 +11,14 @@ import java.util.List;
 import java.util.function.Consumer;
 
 // 引导 Fabric 官方运行时（内嵌驱动）。
-
 // 分工要讲清楚，否则很容易越界：
 //   * 我们的加载器负责：发现、并行、类索引、字节码注入、三端聚合与性能优化；
 //   * 模组运行时所需的 Fabric 事实（游戏在哪、版本多少、类路径是什么、Mixin 怎么接）
 //     由 Fabric 自己的实现负责 —— 我们只是把它按正确顺序启动起来。
-
 // 启动顺序严格照 Knot 来，一步都不能少，也不能多：
 //   1. FabricLauncherBase.setLauncher(我们的 launcher)   ← 必须是第一个，否则 load() 直接 NPE
-
 //   3. provider.locateGame(launcher, args)                ← 由它去找游戏 jar 与版本
-
 //   5. FabricLoaderImpl.INSTANCE.setGameProvider(provider) + load()
-
 // 关键教训（踩过一次）：不要再调用版本定义里的 mainClass（那是 KnotClient）。
 // KnotClient 本身就是 Fabric 的启动器，它也会去 setLauncher，于是会直接抛
 
@@ -132,12 +127,9 @@ public final class FabricRuntime {
             // 这两个现象我们各踩过一次，所以这一步不能省。
             providerIface.getMethod("unlockClassPath", launcherIface).invoke(provider, launcher);
             // 6. 初始化 Mixin 通道 —— 这一步不能省，而且必须在游戏类被加载之前完成。
-
             // 少了它会出现一个非常误导的现象：Fabric 的日志明明写着 "Loading 151 mods"，
-
             // 因为 Mixin 的字节码转换器没装上，于是
             //   * 模组自己的 Mixin 不会被应用；
-
             // 换句话说"模组全部加载失败"其实是"模组全部没启动"。
             initMixin(cl, implClass, impl, launcher);
 
@@ -257,7 +249,6 @@ public final class FabricRuntime {
             Object props = base.getMethod("getProperties").invoke(null);
             if (props == null) {
                 // FabricLauncherBase 的属性表默认是 null，需要主动建一个。
-
                 // 我们取代了 Knot，就得自己补上 —— 否则后续 Mixin 引导会直接 NPE
 
                 Method setter = base.getDeclaredMethod("setProperties", java.util.Map.class);

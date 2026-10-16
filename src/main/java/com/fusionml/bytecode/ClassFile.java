@@ -704,7 +704,6 @@ public final class ClassFile {
             case CP_IFACEMETHODREF: {
 
                 // 注意这里**要解两层**：c.a 是"指向 Class 项的索引"，不是 UTF8 索引。
-
                 // 于是整项导入失败。实测表现：拼接报
 
                 ClassFile.Cp cls = cp(c.a);
@@ -747,7 +746,6 @@ public final class ClassFile {
 
             // 支持它是必须的：对方的方法体里只要有 lambda / 字符串拼接，
             // 就带 invokedynamic。实测 AttachmentHolder.validateAttachmentType
-
             // 注意 bootstrap_method_attr_index 指的是**类的 BootstrapMethods 属性**里的下标，
             // 而那个属性在我们的目标类里是原版的那份 —— 所以不能直接照抄下标，
 
@@ -877,11 +875,8 @@ public final class ClassFile {
 
     public byte[] importMemberForBridge(ClassFile target, Member member) {
         // 注意 receiver 是**源类**、参数是**目标类** —— 与 importMemberBody 一致。
-
         // 踩过一次：这里写成了 `source.importMemberBody(this, member)`，
-
         // 表现是"常量池索引 25966 超出映射表范围（长度 1596）" ——
-
         // 说明两边角色互换了。这种错误在字节码层不会报"参数错"，只会报一个看似无关的越界。
         return importMemberBody(target, member);
     }
@@ -1273,6 +1268,29 @@ public final class ClassFile {
      * 不做数据流分析 —— "谁 new 了它"这一个信号就够了。
      */
     public boolean newsClass(String target) {
+        for (String n : newTargets()) {
+            if (target.equals(n)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 本类字节码里所有 {@code new}（0xBB）的目标类型。
+     *
+     * <p>存在的理由是性能：{@link #newsClass} 是"问一次扫一遍"，
+     * 调用方若要对 8000 个类反复问，就会退化。改为一次拿全量再外部建索引。
+     *
+     * <p>实测背景：{@code PatchedBase} 曾在 8269 个类的循环里反复调
+     * {@code newsClass}，每次都重解压对方 jar，导致 1.21.1 的合并跑了 15 分钟
+     * 还没结束（jstack 抓到主线程停在 FastZip.read 上）。
+     *
+     * <p>判法与 {@link #newsClass} 完全一致（只认 0xBB，不做数据流分析），
+     * 只是把"匹配一个"改成"收集全部"。
+     */
+    public java.util.Set<String> newTargets() {
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
         for (Member m : methods) {
             byte[] code = codeOf(m);
             if (code == null) {
@@ -1286,19 +1304,19 @@ public final class ClassFile {
                     Cp c = cp(idx);
                     if (c != null && c.tag == CP_CLASS) {
                         String n = utf8(c.a);
-                        if (target.equals(n)) {
-                            return true;
+                        if (n != null) {
+                            out.add(n);
                         }
                     }
                 }
                 int len = ConstantPoolTransplant.instructionLengthPublic(code, p, op, code.length);
                 if (len <= 0) {
-                    break;                        
+                    break;
                 }
                 p += len;
             }
         }
-        return false;
+        return out;
     }
 
     public boolean referencesAnyMethodOfDeep(java.util.Set<String> owners,
@@ -1403,7 +1421,6 @@ public final class ClassFile {
             return data;
         }
         // 【必须在写 constant_pool_count **之前**做的事】
-
         //   ClassFormatError: Attribute name has bad constant pool index 170
         // 实测就是这样崩的（NonNullList，185 轮排查）：
 
@@ -1420,9 +1437,7 @@ public final class ClassFile {
         // 与 allocate() 保持同一套算术，否则索引与计数会对不上（踩过，见 allocate 的注释）。
         o.u2(cpSlotCount + extraCpSlots);
         // 自检：写出的项数（逐项写入）与声明的槽位数必须一致。
-
         // 这是踩过 {@code ClassFormatError: Attribute name has bad constant pool index 170}
-
         // 与其等到游戏启动期才崩，不如在这里直接发现。
         int declared = cpSlotCount + extraCpSlots;
         int actual = cpSlotCount + extraCpSlotsOf(extraCp);

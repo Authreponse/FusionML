@@ -193,7 +193,6 @@ public final class BytecodeSelfTest {
         }
 
         // 未注册的键：必须静默空转，不能抛异常。
-
         // 注入端无法判空（会引入分支 → 需要栈图帧），所以"没注册"必须靠调用方
 
         List<HookInjector.Hook> missing = List.of(
