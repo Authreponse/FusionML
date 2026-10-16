@@ -226,11 +226,12 @@ final class InstallerGui {
                     if (keep != null && containsItem(versionBox, keep)) {
                         versionBox.setSelectedItem(keep);
                     } else {
-                        // 默认选中"用户当前所在的那个版本"（选进来的若是版本目录，就是它自己）。
-                        // 理由见预览路径里那段注释：默认选列表第一个会得到一个很蠢的结论。
-                        String here = dir.getFileName() == null ? null : dir.getFileName().toString();
-                        if (here != null && containsItem(versionBox, here)) {
-                            versionBox.setSelectedItem(here);
+                        // 默认选中"目录里真实存在的那个版本"，详见 preferredVersion 的注释。
+                        // 用目录名当默认值是错的：玩家选的多半是 .minecraft 或整合包根目录，
+                        // 于是必然落到第一项，接着被版本闸门判为"不符"而拒绝。
+                        String pick = preferredVersion(o.inheritVersion, dir, r);
+                        if (pick != null && containsItem(versionBox, pick)) {
+                            versionBox.setSelectedItem(pick);
                         }
                     }
                     // 选中的版本同步写回文本框：安装器其余部分仍然读文本字段，
@@ -392,19 +393,13 @@ final class InstallerGui {
                 for (String id : selectableVersions(r)) {
                     versionBox.addItem(id);
                 }
-                // 选中优先级：命令行显式指定的 --inherit > "用户当前所在的版本" > 第一项。
-                //
-                // 显式指定排最前是刻意的：截图要能复现"所选版本与目录不符"这个场景，
-                // 就得能强制选中某个版本；否则永远只能选中目录里那个，拒绝逻辑根本截不出来。
+                // 默认选中：--inherit > 目录里真实存在的版本 > 目录名 > 第一项。
+                // 详见 preferredVersion 的注释 —— 用"目录名"当默认值是错的，
+                // 玩家选的多半是 .minecraft 或整合包根目录，名字既不是 26.3 也不是 1.21.1，
+                // 于是必然落到第一项 26.3，接着被版本闸门判为"不符"而拒绝安装。
                 if (versionBox.getItemCount() > 0) {
-                    String wanted = o.inheritVersion == null ? "" : o.inheritVersion.trim();
-                    String here = dir.getFileName() == null ? null : dir.getFileName().toString();
-                    int idx = -1;
-                    if (!wanted.isEmpty() && containsItem(versionBox, wanted)) {
-                        idx = indexOfItem(versionBox, wanted);
-                    } else if (here != null && containsItem(versionBox, here)) {
-                        idx = indexOfItem(versionBox, here);
-                    }
+                    String pick = preferredVersion(o.inheritVersion, dir, r);
+                    int idx = pick == null ? -1 : indexOfItem(versionBox, pick);
                     versionBox.setSelectedIndex(idx >= 0 ? idx : 0);
                     inherit.setText(String.valueOf(versionBox.getSelectedItem()));
                 }
@@ -790,6 +785,74 @@ final class InstallerGui {
         return out;
     }
 
+    /**
+     * 目录体检之后，下拉框该**默认选中**哪一项。
+     *
+     * <h2>为什么必须按"目录里实际有的版本"来选（这是个实测的严重缺陷）</h2>
+     *
+     * <p>原先的优先级是 {@code --inherit > 目录名本身 > 列表第一项}。
+     * 问题出在第二项用的是 {@code dir.getFileName()} —— 那是**用户选的那个目录的名字**，
+     * 不是"目录里装了什么版本"。玩家选的通常是 {@code .minecraft} 或某个整合包根目录，
+     * 名字既不是 {@code 26.3} 也不是 {@code 1.21.1}，于是**必然落到第一项**（{@code 26.3}）。
+     *
+     * <p>而版本闸门是按"目录里真实存在的版本"判定的。两者一撞，玩家看到的就是：
+     * <b>选完目录、什么都没动，就被红字拒绝</b>，而且提示是"找不到版本 26.3" ——
+     * 目录里明明有版本（{@code 1.21.1-NeoForge_21.1.249}），看起来像"安装器认不出任何版本"。
+     *
+     * <p>正确顺序：{@code --inherit > 目录里真实存在的版本 > 目录名 > 第一项}。
+     * "目录里真实存在的版本"用 {@link com.fusionml.FusionVersions#inferFrom} 归一化，
+     * 所以 {@code 1.21.1-NeoForge_21.1.249} 会归到目标 {@code 1.21.1}。
+     */
+    private static String preferredVersion(String explicit, Path dir, InstallEnvironment.Report r) {
+        java.util.List<String> items = new java.util.ArrayList<>();
+        for (InstallEnvironment.Version v : r.versions()) {
+            items.add(v.id());
+        }
+        // 1) 命令行显式指定（截图要能复现"不符"场景，必须允许强制选中）
+        if (explicit != null && !explicit.isBlank() && contains(items, explicit.trim())) {
+            return explicit.trim();
+        }
+        // 2) **游戏目录自己就是版本目录**（版本隔离布局）→ 就用它自己对应的目标版本。
+        //    这一条必须排在"扫描到的其它版本"前面：实测选 versions\26.3 时，
+        //    体检会扫出根 .minecraft 下的一堆版本（1.20.1、1.21.1…），
+        //    若先取"扫描结果里第一个能归一到目标的"，会选中 1.20.1 ——
+        //    而目录明明是 26.3，于是又变成"不符 → 拒绝"，等于换了个姿势犯同一个错。
+        String here = dir == null || dir.getFileName() == null
+                ? null : dir.getFileName().toString();
+        if (here != null) {
+            com.fusionml.FusionVersions.Target self =
+                    com.fusionml.FusionVersions.inferFrom(here);
+            if (self != null) {
+                return self.id();
+            }
+        }
+        // 3) 目录里真实存在的版本：按目标版本归一化后取第一个已知目标
+        for (String d : items) {
+            com.fusionml.FusionVersions.Target t = com.fusionml.FusionVersions.inferFrom(d);
+            if (t != null) {
+                return t.id();
+            }
+        }
+        // 4) 退化：目录名本身（可能不是已知目标，但至少是目录里有的东西）
+        if (here != null && contains(items, here)) {
+            return here;
+        }
+        // 5) 最后才落到第一项。
+        return items.isEmpty() ? null : items.get(0);
+    }
+
+    private static boolean contains(java.util.List<String> list, String item) {
+        if (item == null) {
+            return false;
+        }
+        for (String s : list) {
+            if (s.equals(item)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean containsItem(JComboBox<String> box, String item) {
         return indexOfItem(box, item) >= 0;
     }
@@ -820,12 +883,31 @@ final class InstallerGui {
         }
         com.fusionml.FusionVersions.Target want = com.fusionml.FusionVersions.byId(chosen);
 
-        java.util.List<String> realDirs = list(gameDir.resolve("versions"));
+        // "目录里有哪些版本"分两种布局，必须都认：
+        //   a) 版本隔离：游戏目录**本身就是版本目录**（PCL 等把实例放在 versions\<id>），
+        //      它的名字（如 26.3 / 1.21.1-NeoForge_21.1.249）就是版本 id；
+        //   b) 标准布局：游戏目录是 .minecraft 根，版本在 <目录>/versions/ 下。
+        //
+        // 以前只查 (b)。玩家选 versions\26.3 时 (b) 是空的，于是明明选的就是 26.3，
+        // 却被判成"目录里没有 26.3" —— 这正是"不管里面有没有版本，都说没有"的来源之一。
+        java.util.List<String> realDirs = new java.util.ArrayList<>();
+        String self = gameDir.getFileName() == null ? "" : gameDir.getFileName().toString();
+        boolean selfIsVersionDir = !self.isBlank()
+                && java.nio.file.Files.isRegularFile(gameDir.resolve(self + ".json"));
+        if (selfIsVersionDir) {
+            realDirs.add(self);
+        }
+        for (String d : list(gameDir.resolve("versions"))) {
+            if (!realDirs.contains(d)) {
+                realDirs.add(d);
+            }
+        }
         sb.append("  所选版本：").append(chosen)
                 .append(want == null ? "（不是已知目标版本）" : "（目标 " + want.mcVersion() + "）")
                 .append(System.lineSeparator());
         sb.append("  目录内版本目录：")
                 .append(realDirs.isEmpty() ? "（无）" : String.join("、", realDirs))
+                .append(selfIsVersionDir ? "（游戏目录本身就是版本目录）" : "")
                 .append(System.lineSeparator());
 
         java.util.List<String> knownInDir = new java.util.ArrayList<>();

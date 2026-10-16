@@ -170,13 +170,237 @@ ModFileLoadingException: Failed to load mod file kotlinforforge-4.11.0-all.jar
   同时证明映射表把 named 名正确反查成了混淆名（否则按名字根本找不到对应类）。
 - 性能：合并 **44766 ms**（修复前 15 分钟+），裁决结果与修复前逐项一致
 - **1.21.1 真机端到端：进主界面 + 渲染 + 音效，`test.err` 零异常**
+- 安装器注入往返：注入 → 卸载还原，`26.3.json` 精确回到 15 项、
+  `PCL/config.v1.yml` 回到 `Info: ''` / `Grass.png`（已实测）
+- `-javaagent` 位置：在 `[13]`，`-cp` 在 `[16]` → **在 classpath 之前**（已实测）
+- 幂等：重复安装输出"宿主版本定义已注入过（26.3），跳过"（已实测）
 
 ### 未验证
 - **1.20.1 端到端**：只验证了映射表与名称换算（全量 100%），**没有跑过 1.20.1 的游戏启动**
   （还需要 Forge 侧的补丁产物规律）
-- **跨端拼接在真实跨端模组下的效果**：本次干净实例 **0 个模组**，所以只证明了
+- **跨端拼接在真实跨端模组下的效果**：干净实例 **0 个模组**，所以只证明了
   "合并产出正确 + 游戏能起"，**没有**证明"某个具体跨端模组因此可用"
 - **1.21.1 余下 6674 个类（8269−1595）的正确性**：本机无完整 named 游戏包作对照，无证据
 - 内存占用未测
 - `MappingTable` 的 SRG→named 二级映射：1.20.1 的成员右列 93.57% 字段 / 76.52% 方法是
   SRG 中间名，**是否需要二级映射取决于对方补丁基座里成员叫什么名**，未判定
+- **PCL 实例概览的实际显示效果**：写入格式已按实测的 PCL 配置结构对齐，
+  但**没有在 PCL 界面里肉眼确认**过图标与文字真的显示出来
+- **从 PCL 真实点击启动**：注入后的 json 结构已逐项核对（javaagent 位置、继承链、
+  jvm 项数），但没有真的在 PCL 里点一次"启动"
+
+## 六、安装器缺陷修复（玩家实测报的）
+
+用户实测报的问题，**根因都不是 remap，而在"版本定义怎么写"**。
+
+### 缺陷 A：`inheritsFrom` 写成了目标版本，而不是宿主版本 id
+
+```
+玩家实例的版本目录 id = "1.21.1-NeoForge_21.1.249"（或 "26.3"）
+写出的 inheritsFrom  = "1.21.1"        ← 目标版本，启动器根本找不到这个版本
+```
+同一个 `o.inheritVersion` 被当成两件事用：
+- 选哪个 loader（需要**目标版本** `1.21.1`）
+- 版本 json 的 `inheritsFrom`（需要**宿主版本目录 id**）
+
+**修法**：拆成两个职责，新增 `hostVersionId(gameDir, target)` 专门解析宿主版本
+（优先匹配与目标同版本的目录，取排序后第一个以保证可复现）。
+
+### 缺陷 B：版本 json 自带了 `mainClass` 与空 `libraries`
+
+原实现写：
+```json
+"mainClass": "com.fusionml.FusionLauncher",
+"libraries": [],
+"arguments": {"game": ["--gameDir", ..., "--mods", ...]}
+```
+后果是**顶掉了平台启动器**（Fabric 的 `KnotClient`、NeoForge 的 `BootstrapLauncher`）：
+- 从启动器启动**不加载 mod**
+- **earlywindow 也没了**（平台的 JVM 参数一个都没继承到）
+
+**修法**（Fabric / Forge 安装器那一套）：`mainClass`、`libraries` **一律不写**，
+让它们从父版本继承；只**追加** `arguments.jvm` 里的 `-javaagent` 与我们的属性。
+
+### 缺陷 C：GUI 默认选中的版本不跟随目录
+
+原优先级是 `--inherit > 目录名 > 列表第一项`。第二项用的是 `dir.getFileName()`
+—— 那是**玩家选的目录的名字**（多半是 `.minecraft` 或整合包根目录），
+既不是 `26.3` 也不是 `1.21.1`，于是**必然落到第一项 `26.3`**，接着被版本闸门判"不符"而拒绝。
+
+**表现**：玩家选完目录、什么都没动，就被红字拒绝；提示"找不到版本 26.3"，
+而目录里明明有版本 —— 看起来就是"安装器认不出任何版本"。
+
+**修法**：改成 `--inherit > 游戏目录自己（版本隔离时）> 目录里真实存在的版本 > 目录名 > 第一项`。
+中间那条"游戏目录自己"必须有：实测选 `versions\26.3` 时体检会扫出根 `.minecraft`
+下的一堆版本（`1.20.1`、`1.21.1`…），若先取"扫描结果里第一个"，会选中 `1.20.1` ——
+换了个姿势犯同一个错。
+
+### 缺陷 D：版本闸门不认版本隔离布局
+
+闸门原来只在 `<游戏目录>/versions/` 下找版本。但版本隔离时**游戏目录本身就是版本目录**
+（PCL 把实例放在 `versions\<id>`），里面没有 `versions/` 子目录 → 判定为空 →
+明明选的就是 `26.3`，却报"目录里没有 26.3"。
+
+**修法**：先判"游戏目录自己是不是版本目录"（有没有 `<目录名>.json`），是就以它自己为准，
+再并入 `<目录>/versions/` 下的那些。
+
+---
+
+## 七、"从启动器启动就搞定"是怎么做到的
+
+### 为什么以前必须先装一遍 Minecraft
+
+老安装器是"**往玩家已装好的实例里加东西**"。对新手来说这是最难的一步：
+他得先知道"装哪个版本、装在哪、用什么 Java"，才能开始用 FusionML。
+
+Fabric 官方安装器不这样 —— 它**自己把 Minecraft 拉下来**。本轮补上了同样的能力。
+
+### 做法
+
+新增 `FullInstance`：一条命令装出**自包含**的实例。
+
+```
+java -jar fusion-installer.jar --install-full 26.3 --target <目录>
+```
+
+装出来的结构（实测，`build\fulltest`）：
+```
+versions/26.3/26.3.jar          ← 游戏本体 39.6 MB
+versions/26.3/26.3.json         ← 原版版本定义
+libraries/                      ← 114 个依赖库，111 MB
+assets/indexes + objects/       ← 资源（--no-assets 可跳过，约 1.4 GB）
+lib/fusionml/fusion-ml.jar      ← 加载器本体
+versions/fusionml-1.0.0/…json   ← 可启动版本定义（继承 + javaagent）
+mods/ config/ start-game.cmd …
+```
+
+下载全部走 `McDownloader.ensure` —— 它**先查本地文件是否已通过 sha1 校验**，
+通过就复用。所以重复安装廉价、中断可续。
+
+`--no-assets` 用于快速验证启动链路；首次装机必须下 assets，否则没有音效与语言。
+
+### 本轮踩的坑（已记入纪律）
+
+**用 PowerShell 的 `Get-Content … -replace … | Set-Content` 改 Java 源文件，把整个文件的
+UTF-8 编码毁成了 GBK** —— 43 处中文注释全部变成乱码，只能整文件重写。
+
+这条其实早就有记录（"绝不要用 PowerShell `Set-Content` 写 .java"），本轮又犯了一次。
+**根因是"想省一次写操作"**。正确的做法只有一条：改 Java 源码一律用 write/edit 工具。
+
+---
+
+
+### 关键认识：启动器启动的是**玩家实例**，不是我们新建的版本
+
+实测 PCL 的机制（读 `PCL/config.v1.yml` 与 `PCL/Setup.ini`）：
+
+- 模组平台**不写进版本 json**，而是记在 PCL 自己的配置里
+  （`VersionFabric: ''` / `VersionNeoForge: 21.1.249`），启动时由 PCL 自己拼进 classpath。
+- 实测用户那个 26.3 实例：`26.3.json` 的 `mainClass = net.minecraft.client.main.Main`（纯原版）、
+  没有任何 fabricloader 库，而 `PCL/config.v1.yml` 的 `VersionFabric` / `VersionNeoForge` **都是空**。
+
+**所以**：任何"新建一个继承版本"的方案都拿不到平台 —— 继承出来的只是个纯原版定义。
+玩家在启动器里选的也是**实例本身**（`26.3`），不会去选 `fusionml-1.0.0`。
+
+### 做法：注入宿主实例的版本 json
+
+往 `versions/<hostId>/<hostId>.json` 的 `arguments.jvm` 里**追加**：
+
+```
+-javaagent:${game_directory}/lib/fusionml/fusion-ml.jar
+-Dfusion.gameDir=${game_directory}
+-Dfusion.version=<hostId>
+```
+
+三条安全约束：
+1. **先备份**：原文件整份存成 `<id>.json.fusionml-backup`，卸载时精确还原（已实测往返）
+2. **只追加不覆盖**：不动任何既有 jvm 项
+3. **幂等**：已注入则跳过（否则重复安装会堆一串 javaagent）
+
+**插入位置很关键**：必须插在 `-cp` **之前**。实测该版本 `jvm` 末尾是
+`["-cp", "${classpath}"]`，追加到最后会让它落在 classpath 之后，部分启动器会出错。
+实测结果：`-javaagent` 在 `[13]`、`-cp` 在 `[16]` ✅
+
+### 做法：在 PCL 实例概览里标出加载器
+
+PCL 靠 `PCL/config.v1.yml` 的 `Info`（说明文字）与 `Logo`（实例图标）显示状态。
+实测一个 NeoForge 实例：`Logo: .../Blocks/NeoForge.png`、`Setup.ini` 里
+`Info:正式版 1.21.1, NeoForge 21.1.249`。
+
+安装时：
+- `Info` **追加** `, FusionML`（保留原有内容）
+- `Logo` 若还是原版 `Grass.png` 就换成 `Anvil.png`
+  （PCL 图标是内嵌 `pack://` 资源，外部加不进去；实测可用的只有
+  Grass / Fabric / NeoForge / Anvil / RedstoneBlock。用 Anvil 是因为它不属于任何单一下载器，
+  不容易引起误解；**真正说明身份的是 `Info` 里那句 `, FusionML`**）
+- **平台字段（`VersionFabric` / `VersionNeoForge`）一律不碰** —— 那是"启动时装哪个平台"
+  的开关，写错会让整合包直接起不来。我们只在启动时以 javaagent 挂上去，不需要改它。
+- 两个文件都先备份，卸载时还原（已实测往返）
+
+> **一个自己踩的坑**：拼 `"Info:" + ": "` 得到了 `Info:: '', FusionML`（**双冒号**），
+> 会破坏 PCL 配置。冒号后只能加一个空格。修复后输出 `Info:FusionML`。
+
+### 为什么不再依赖 `start-game.cmd`
+
+原脚本是 `java -jar fusion-ml.jar --mc-launch`，即**我们自己当启动器**。实测这条路的
+根本缺陷：它按 `libraries` 拼 `-cp`，而 NeoForge 是用 `BootstrapLauncher` + **模块路径**
+加载的，自己拼**永远拼不全** —— 实测闪退：
+```
+NoClassDefFoundError: net/neoforged/neoforge/common/extensions/TypedInstanceExtension
+  at net.minecraft.client.main.Main.main
+```
+这正是"用 start-game.cmd 启动慢、还闪退"的原因。改成注入宿主 json 后，
+平台启动器与它的全部参数都由启动器自己提供，我们只是被"搭便车"挂上。
+
+---
+
+## 八、一键装出完整实例（对照 Fabric 安装器）
+
+### 为什么以前必须先自己装一遍 Minecraft
+
+老安装器是"**往玩家已装好的实例里加东西**"。对新手这是最难的一步：
+他得先知道"装哪个版本、装在哪、用什么 Java"，才能开始用 FusionML。
+
+Fabric 官方安装器不这样 —— 它**自己把 Minecraft 拉下来**。本轮补上了同样的能力。
+
+### 做法
+
+新增 `FullInstance`，一条命令装出**自包含**实例：
+
+```
+java -jar fusion-installer.jar --install-full 26.3 --target <目录>
+```
+
+实测装出的结构（`build\fulltest`）：
+```
+versions/26.3/26.3.jar          ← 游戏本体 39.6 MB
+versions/26.3/26.3.json         ← 原版版本定义
+libraries/                      ← 114 个依赖库，111 MB
+assets/indexes + objects/       ← 资源（--no-assets 可跳过，约 1.4 GB）
+lib/fusionml/fusion-ml.jar      ← 加载器本体
+versions/fusionml-1.0.0/…json   ← 可启动版本定义（继承 + javaagent）
+mods/ config/ start-game.cmd …
+```
+
+下载全部走 `McDownloader.ensure`：**先查本地文件是否已通过 sha1 校验**，通过就复用。
+所以重复安装廉价、中断可续。`--no-assets` 用于快速验证启动链路；
+首次装机必须下 assets，否则没有音效与语言。
+
+### 本轮踩的坑（写进纪律）
+
+想省一次写操作，用了 PowerShell 的 `Get-Content … -replace … | Set-Content` 改 Java 源文件，
+**把整个文件的 UTF-8 编码毁成 GBK**，43 处中文注释全变乱码，只能整文件重写。
+
+这条纪律早就有（"绝不要用 PowerShell `Set-Content` 写 .java"），本轮又犯。
+**改 Java 源码一律用 write / edit 工具，没有例外。**
+
+### 两次"编码虚警"的教训（同一个坑踩了两次）
+
+用 `Get-Content -Raw`（默认按 GBK 解码）读 UTF-8 文件，看到中文乱码，
+一度以为 `launcher_profiles.json` 与本文档被写坏了 —— 实际两次都是**读取方式**的错，
+文件本身完全正常（`[System.IO.File]::ReadAllText(path, UTF8)` 读出来是对的）。
+
+**判据要定死**：怀疑编码问题时先看字节
+（`ReadAllBytes` + `Encoding.UTF8.GetString` 数 `U+FFFD` 的个数），
+不要用 `Get-Content` 的显示结果下结论。
+

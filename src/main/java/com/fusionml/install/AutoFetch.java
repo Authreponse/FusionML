@@ -46,7 +46,8 @@ public final class AutoFetch {
             "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
     /** 一个版本的可下载信息。 */
-    public record VersionInfo(String id, String type, String releaseTime,
+    /** 版本 json 的地址 —— 里面有 libraries 与 assetIndex 的完整清单，装完整实例要用。 */
+    public record VersionInfo(String id, String type, String releaseTime, String jsonUrl,
                               String clientUrl, String clientSha1, long clientSize,
                               String serverUrl, String serverSha1, long serverSize) {
     }
@@ -103,7 +104,7 @@ public final class AutoFetch {
         Map<String, Object> client = nested(downloads, "client");
         Map<String, Object> server = nested(downloads, "server");
         return new VersionInfo(id,
-                type, releaseTime,
+                type, releaseTime, url,
                 Json.str(client, "url", ""), Json.str(client, "sha1", ""),
                 numOf(client, "size"),
                 Json.str(server, "url", ""), Json.str(server, "sha1", ""),
