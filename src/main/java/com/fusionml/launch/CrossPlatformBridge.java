@@ -32,7 +32,6 @@ import java.util.List;
  */
 public final class CrossPlatformBridge {
 
-    /** 跨端模组包列表（pathSeparator 分隔）。 */
     private static final String PROP_JARS = "fusion.foreignModJars";
     /**
      * 跨端"运行时"包列表（pathSeparator 分隔）。
@@ -56,7 +55,6 @@ public final class CrossPlatformBridge {
     /** 跨端 Mixin 配置名列表（逗号分隔）。 */
     private static final String PROP_CONFIGS = "fusion.extraMixinConfigs";
 
-    /** 只做一次：宿主平台的引导方法可能被多次调用（不同平台、重入），注册重复会报错。 */
     private static volatile boolean done;
     /**
      * 重入保护。
@@ -116,7 +114,6 @@ public final class CrossPlatformBridge {
         run(System.getProperty("fusion.hostPlatform", "Fabric"));
     }
 
-    /** 供平台未知、由我们自己的启动路径直接调用时使用。 */
     public static void run(String host) {
         if (done || running) {
             return;
@@ -145,21 +142,21 @@ public final class CrossPlatformBridge {
                 + configs.size() + " 条");
         // NeoForge / Forge 宿主的层在启动参数里就定好了（legacyClassPath），
         // 这里只补一遍 Fabric 的运行时扩展点 —— 也允许在这里重试一次：
-        // 挂载点有两个（加类路径在前、注册配置在后），任何一个没成都能在这里兜住。
+
         if (!jars.isEmpty() && "Fabric".equals(host)) {
             addToFabricClassPath(jars);
         } else if (!jars.isEmpty()) {
             addToHostClassPath(host, jars);
         }
         // 对方平台 API 的那一拨必须在这里（原版引导之前）就位：
-        // 补丁后的原版类在定义时就要解析对方的接口与超类。
+
         // 这一拨里**不含** FML 引导本体，所以不会把跨端模组的 Mixin 插件带进
         // "There is no current FML Loader" 那个启动崩溃（见下面的长注释）。
         List<Path> earlyRuntime = readPaths(PROP_EARLY_RUNTIME);
         // 用了补丁原版基座时，对方平台的引导包（FML）这一拨也必须在原版引导之前就位，
-        // 并且立刻把 FML 的全局状态建起来 —— 补丁后的原版类会在静态初始化里回调它。
+
         // 这不是"能早则早"：早晚都可以的时候我们选择晚（见下面的长注释），
-        // 只有补丁原版字节在场时才不得不早。
+
         List<Path> fmlRuntime = List.of();
         if (Boolean.parseBoolean(System.getProperty("fusion.fmlEarly", "false"))) {
             List<Path> all = readPaths(PROP_RUNTIME);
@@ -190,13 +187,13 @@ public final class CrossPlatformBridge {
             }
         }
         // 注意：跨端"运行时"包里**含 FML 引导本体**的那一拨故意不在这里登记。
-        //
+
         // 这件事踩过一次，值得写下来：如果在宿主平台准备 Mixin 配置之前就把对方平台的
         // **FML 引导本体**放到类路径上，跨端模组里那些 Mixin 插件、Mixin 类就会
-        // "找得到 FML 的类、于是真的去用"，然后在配置阶段抛
+
         // "There is no current FML Loader" —— 结果是启动直接崩
         // （类根本找不到时 Mixin 只记一笔就继续）。
-        // 所以含 FML 引导本体的那一拨推迟到"驱动跨端模组的那一刻"才登记，
+
         // 见 CrossLoad#onGameReady；而不含它的那一拨必须早登记（上面刚做完）。
 
         // Mixin 配置进同一个服务。
@@ -207,12 +204,11 @@ public final class CrossPlatformBridge {
         ClassLoader hostLoader = hostClassLoader();
         ClassLoader cl = hostLoader != null ? hostLoader : CrossPlatformBridge.class.getClassLoader();
         System.out.println("[FusionML/跨端] 宿主类加载器 " + cl.getClass().getName());
-        // 预热解析：补丁原版类的**头部**指向对方平台的类型（例如 Registry → IRegistryExtension），
-        // 而对方那个接口自己的方法签名又反过来提到 Registry —— 直接让 JVM 边定义边解析，
+
         // 会以 NoClassDefFoundError 收场（实测：日志里能同时看到
         // "IRegistryExtension 由宿主定义成功" 与 "定义 Registry 时解析 IRegistryExtension 失败"）。
         // 先把这些对方类型解析掉，顺序就成立了。
-        // 名单由合并游戏包时算出来（PatchedBase），这里只负责按它预热。
+
         List<String> warm = com.fusionml.crossload.PatchedBase.warmUpTypes();
         if (!warm.isEmpty()) {
             int warmOk = 0;
@@ -241,7 +237,7 @@ public final class CrossPlatformBridge {
         // 直接问平台类加载器"你从哪里解析 Registry"。这个问题比看类路径顺序可靠得多 ——
         // 实测过：把基座排进 -cp 的最前面，宿主依然会从原版 jar 里取 Registry
         // （平台的游戏类来源不是普通的类路径顺序），于是对方模组一注册就抛
-        // LambdaConversionException，而日志里看不出任何异常。
+
         String baseJar = System.getProperty(
                 com.fusionml.crossload.PatchedBase.PROP_RESOLVED, "");
         if (!baseJar.isBlank()) {
@@ -254,7 +250,7 @@ public final class CrossPlatformBridge {
                             ? "——已被宿主采用" : "——宿主没有采用它"));
             // 类加载器身份：跨端最容易出的不是"类找不到"，而是"同一个类被两份加载器各定义一次"。
             // 那种情况下类型判断（lambda 的接收者检查、instanceof、cast）会以非常难读的方式失败，
-            // 所以这里一次性把关键类型"由谁定义、实现了谁"摆出来。
+
             identity("net.minecraft.core.Registry", cl);
             identity("net.minecraft.core.MappedRegistry", cl);
             identity("net.neoforged.neoforge.registries.IRegistryExtension", cl);
@@ -279,7 +275,7 @@ public final class CrossPlatformBridge {
                     + "），这些会注册失败");
         }
         // 逐个确认"我们加进去的 jar"到底能不能被宿主看到。
-        // 这一步专门用来防止自欺欺人：调用 addToClassPath 没抛异常，不等于宿主真的能看到里面的东西。
+
         for (Path jar : jars) {
             String sample = sampleEntry(jar);
             boolean visible = sample != null && cl.getResource(sample) != null;
@@ -296,7 +292,7 @@ public final class CrossPlatformBridge {
         for (String note : r.notes()) {
             System.out.println("[FusionML/跨端]   · " + note);
         }
-        // 结论写进系统属性：游戏内 HUD 与报告要如实显示"三端是否真的合流"。
+
         System.setProperty("fusion.bridgeConfigsVerified", String.valueOf(r.verified()));
         System.setProperty("fusion.bridgeConfigsFailed", String.valueOf(r.failed()));
     }
@@ -314,8 +310,7 @@ public final class CrossPlatformBridge {
             return addToFabricClassPath(jars);
         }
         // NeoForge / Forge 走的不是"运行时加类路径"，而是 ModLauncher 的层（layer）机制：
-        // 它们的模块层在启动参数里就定好了，运行期没有等价的公开扩展点。
-        // 所以那两端的做法是在组装启动命令时就把跨端包写进 legacyClassPath
+
         // （见 LaunchPlan），这里如实说明而不是假装成功。
         System.out.println("[FusionML/跨端] " + host
                 + " 的类路径由启动参数决定，跨端包已在启动时写入 legacyClassPath");
@@ -438,8 +433,6 @@ public final class CrossPlatformBridge {
         }
     }
 
-    // ------------------------------------------------------------------ 属性读写
-
     public static void setForeignJars(List<Path> jars) {
         StringBuilder sb = new StringBuilder();
         for (Path p : jars) {
@@ -455,7 +448,6 @@ public final class CrossPlatformBridge {
         System.setProperty(PROP_CONFIGS, String.join(",", configs));
     }
 
-    /** 跨端运行时包（对方平台的 API / 事件总线），由前置分析解析后写入。 */
     public static void setForeignRuntime(List<Path> jars) {
         StringBuilder sb = new StringBuilder();
         for (Path p : jars) {
@@ -467,7 +459,6 @@ public final class CrossPlatformBridge {
         System.setProperty(PROP_RUNTIME, sb.toString());
     }
 
-    /** 跨端运行时包列表（来自系统属性，游戏进程内使用）。 */
     public static List<Path> foreignRuntime() {
         return readPaths(PROP_RUNTIME);
     }
@@ -490,7 +481,6 @@ public final class CrossPlatformBridge {
         System.setProperty(PROP_EARLY_RUNTIME, sb.toString());
     }
 
-    /** 早登记的运行时包列表。 */
     public static List<Path> foreignEarlyRuntime() {
         return readPaths(PROP_EARLY_RUNTIME);
     }
@@ -564,7 +554,6 @@ public final class CrossPlatformBridge {
         }
     }
 
-    /** 内部名集合（逗号分隔的系统属性）→ 快速判定用的集合。 */
     private static volatile java.util.Set<String> mixinTargets;
 
     /**
@@ -578,8 +567,7 @@ public final class CrossPlatformBridge {
         java.util.Set<String> set = mixinTargets;
         if (set == null) {
             set = new java.util.HashSet<>(1024);
-            // 文件通道优先：名单可能很大（本整合包 846 个），塞不进命令行，
-            // 启动侧因此把它写成文件、只在命令行上留下路径。
+
             String file = System.getProperty(
                     com.fusionml.crossload.PatchedBase.PROP_TARGETS_FILE, "");
             boolean loaded = false;

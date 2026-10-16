@@ -57,7 +57,6 @@ public final class McInstance {
             this.clientJar = clientJar;
         }
 
-        /** 当前系统适用的库。 */
         public List<McVersion.Library> applicableLibraries() {
             List<McVersion.Library> out = new ArrayList<>(libraries.size());
             for (McVersion.Library lib : libraries) {
@@ -75,7 +74,6 @@ public final class McInstance {
         }
     }
 
-    /** 游戏根目录：{@code versions/}、{@code libraries/}、{@code assets/} 所在的地方。 */
     private final Path root;
     /** 游戏运行目录：存档、日志、配置、mods 真正读写的地方（版本隔离时就是版本目录本身）。 */
     private final Path gameDir;
@@ -85,7 +83,6 @@ public final class McInstance {
         this.gameDir = gameDir.toAbsolutePath().normalize();
     }
 
-    /** 标准布局：给的目录里直接有 {@code versions/}。 */
     public McInstance(Path root) {
         this(root, root);
     }
@@ -108,8 +105,7 @@ public final class McInstance {
         String name = d.getFileName() == null ? "" : d.getFileName().toString();
         // 先判断"它自己是不是一个版本目录"，判据要够强：
         //   a) 里面就有 <目录名>.json（版本定义），或
-        //   b) 父目录叫 versions
-        // 反过来判断（"有 versions 子目录就算根目录"）是不可靠的：
+
         // 实测有些游戏目录里会自己长出一个 versions 子目录（模组或游戏写的），
         // 那样就会把版本目录误判成根目录。
         boolean selfIsVersionDir = Files.isRegularFile(d.resolve(name + ".json"))
@@ -150,7 +146,6 @@ public final class McInstance {
         return !root.equals(gameDir);
     }
 
-    /** 这个目录看起来像一个游戏目录吗。 */
     public boolean valid() {
         return Files.isDirectory(versionsDir()) || Files.isDirectory(librariesDir());
     }
@@ -222,7 +217,7 @@ public final class McInstance {
                     merged.put(key, def.get(key));
                 }
             }
-            // 库：同一个 group:artifact 后者覆盖前者。
+
             for (Object o : Json.arr(def.get("libraries"))) {
                 Map<String, Object> lib = Json.obj(o);
                 McVersion.Library parsed = parseLibrary(lib);
@@ -246,7 +241,7 @@ public final class McInstance {
                 List<String> legacyArgs = new ArrayList<>(List.of(legacy.split("\\s+")));
                 gameArgs.addAll(0, legacyArgs);
             }
-            // 客户端 jar：本层目录里有就用本层的。
+
             Path jar = versionsDir().resolve(defId).resolve(defId + ".jar");
             if (clientJarOwner == null && Files.isRegularFile(jar)) {
                 clientJarOwner = defId;
@@ -267,7 +262,6 @@ public final class McInstance {
         return eff;
     }
 
-    /** 占位符预览：继承链合并时参数还是模板，这里只为了能按规则求值，占位符原样保留。 */
     private static Map<String, String> placeholderPreview() {
         return Map.of();
     }
@@ -306,7 +300,7 @@ public final class McInstance {
         }
         // 有些库在本地提供了 jar，但版本定义里没有 downloads.artifact（PCL 这类启动器
         // 会把 artifact 段精简掉）。这种不能直接跳过 —— 路径可以由 Maven 坐标推出来，
-        // 只要本地文件在，就应该进类路径。
+
         return new McVersion.Library(name,
                 Json.str(art, "path", mavenPathOf(name)),
                 Json.str(art, "url", ""),
@@ -315,7 +309,6 @@ public final class McInstance {
                 lib.get("rules"));
     }
 
-    /** 由 Maven 坐标推导本地/远程路径。 */
     public static String mavenPathOf(String mavenName) {
         String[] parts = mavenName.split(":");
         if (parts.length < 3) {
@@ -326,14 +319,12 @@ public final class McInstance {
                 + parts[1] + "-" + parts[2] + classifier + ".jar";
     }
 
-    /** 库在本地仓库里的路径。 */
     public Path localLibraryPath(McVersion.Library lib) {
         String path = lib.path() == null || lib.path().isBlank()
                 ? mavenPathOf(lib.name()) : lib.path();
         return librariesDir().resolve(path);
     }
 
-    /** 统计本地已有哪些库、缺哪些（不下载，只报告）。 */
     public record LibraryStatus(int present, int missing, List<String> missingNames) {
         public String summary() {
             if (missing == 0) {
@@ -357,7 +348,6 @@ public final class McInstance {
         return new LibraryStatus(present, missing.size(), missing);
     }
 
-    /** 资源目录是否看起来可用。 */
     public boolean hasAssets() {
         return Files.isDirectory(assetsDir().resolve("indexes"))
                 && Files.isDirectory(assetsDir().resolve("objects"));
@@ -381,7 +371,7 @@ public final class McInstance {
                 }
             }
         } catch (IOException ignored) {
-            // 目录读不了就返回空列表
+
         }
         return out;
     }

@@ -78,10 +78,7 @@ public final class Version implements Comparable<Version> {
             }
         }
         if (parts.size() != o.parts.size()) {
-            // 段数不同时的规则要分情况，这里是最容易写错的地方：
-            //   * 多出来的是纯数字 0（"1.0" vs "1.0.0"）→ 等价；
-            //   * 多出来的是数字（"1.0" vs "1.0.1"）→ 段多的一方更大；
-            //   * 多出来的是字符串限定符（"26.3" vs "26.3-rc.3"）→ 段多的一方<b>更小</b>，
+
             //     因为"正式的 26.3"必须大于"它的候选版 26.3-rc.3"。
             //     忽略这条会让所有写着 >=26.3-rc.3 的模组被误判为"版本不满足"。
             boolean selfLonger = parts.size() > o.parts.size();
@@ -108,7 +105,7 @@ public final class Version implements Comparable<Version> {
             return Long.compare((Long) a, (Long) b);
         }
         if (na != nb) {
-            // 数字段大于字符串段（Maven 语义）：1.0-beta < 1.0
+
             return na ? 1 : -1;
         }
         return a.toString().compareToIgnoreCase(b.toString());

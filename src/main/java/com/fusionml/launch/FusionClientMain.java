@@ -46,9 +46,8 @@ public final class FusionClientMain {
                 + (FusionAgent.available() ? "已挂载" : "未挂载（注入不可用）"));
         System.out.println("======================================================");
 
-        // 早期窗口：从"点启动"到"进游戏"全程给玩家反馈。
         // 之前我在这里把它关掉了，理由是"游戏会接管窗口"—— 那个判断是错的：
-        // 加载阶段（尤其是平台运行时引导）恰恰是最需要反馈、也最容易让人以为卡死的时候。
+
         com.fusionml.earlywindow.EarlyWindowConfig ewConfig =
                 com.fusionml.earlywindow.EarlyWindowConfig.load();
         // 交棒给游戏之前由我们显式关闭，避免和游戏自己的窗口创建过程互相干扰。
@@ -59,9 +58,9 @@ public final class FusionClientMain {
         earlyWindow.open();
         earlyWindow.log("游戏版本 " + version + "，目录 " + gameDir);
         earlyWindow.log("运行 Java " + System.getProperty("java.version"));
-        // 引导日志同时进早期窗口与控制台。
+
         // 只送窗口是个错误：一旦引导失败，原因就只出现在一个可能已经关掉的窗口里，
-        // 控制台和日志文件里什么都看不到 —— 排查时等于黑屏。
+
         java.util.function.Consumer<String> platformLog = line -> {
             System.out.println("[FusionML] " + line);
             try {
@@ -77,9 +76,7 @@ public final class FusionClientMain {
             if (Files.isDirectory(modsDir)) {
                 // 先引导平台官方运行时（Fabric），再加载模组。
                 // 顺序很重要：模组在 onInitialize 里会调用 FabricLoader.getInstance()、
-                // 读配置目录、注册表和事件；运行时没起来的话这些全是 null。
-                // 引导成功后，模组的初始化交给平台自己驱动（语义最准），
-                // 我们依然负责发现、索引、注入与报告。
+
                 // 注意要传"游戏版本"（26.3），不是"版本名"（26.3-Fabric 0.19.5）。
                 // Fabric 用它去校验模组声明的 minecraft 依赖，传版本名会让所有模组都判不满足。
                 Path clientJarPath = clientJarProp.isBlank() ? null : Path.of(clientJarProp);
@@ -97,13 +94,12 @@ public final class FusionClientMain {
                 if (platformReady && FabricRuntime.entrypoint() != null) {
                     // 关键：我们已经取代了平台的启动器（Knot），所以必须直接交给"游戏本体主类"。
                     // 版本定义里的 mainClass 是 KnotClient —— 它自己也会去 setLauncher，
-                    // 于是会直接抛 "Duplicate setLauncher call!"。
+
                     System.out.println("[FusionML] 已接管平台启动器，改交游戏本体主类："
                             + FabricRuntime.entrypoint());
                     realMain = FabricRuntime.entrypoint();
                 } else if (FabricRuntime.launcherInstalled()) {
-                    // 我们已经占用了平台的 launcher 挂载点，平台自己的启动器（Knot）不可能再起来，
-                    // 这时候再去调它必然抛 "Duplicate setLauncher call!"。
+
                     // 直接交给游戏本体主类：至少保证游戏能进，模组初始化缺失的问题另行报告。
                     realMain = "net.minecraft.client.main.Main";
                     platformLog.accept("平台运行时未完全就绪，但启动器挂载点已被占用；"
@@ -130,7 +126,6 @@ public final class FusionClientMain {
             System.out.println("[FusionML] 已按要求跳过模组加载。");
         }
 
-        // 先自检再交棒：对真实游戏类注入一次，让 JVM 自己判定改写是否合法。
         if (!clientJarProp.isBlank()) {
             Path clientJar = Path.of(clientJarProp);
             if (Files.isRegularFile(clientJar)) {
@@ -157,11 +152,10 @@ public final class FusionClientMain {
             System.exit(0);
         }
 
-        // 交棒前把早期窗口收掉：它已经完成了告知进度的使命，
         // 让位给游戏自己的窗口，避免两套窗口系统在同一进程里抢注意力。
         earlyWindow.finish("加载完成，正在启动游戏…");
         try {
-            Thread.sleep(350);            // 让"完成"这一帧真正画出来
+            Thread.sleep(350);            
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -182,7 +176,6 @@ public final class FusionClientMain {
         invokeRealMain(realMain, args);
     }
 
-    /** 加载模组：发现 → 元数据 → 依赖 → 索引 → 注册 → 注入规则。 */
     private static FusionRuntime.Session loadMods(Path modsDir, java.util.Map<String, String> provided,
                                                   boolean registerMods,
                                                   com.fusionml.earlywindow.EarlyWindow earlyWindow) {
@@ -195,9 +188,9 @@ public final class FusionClientMain {
         if (provided != null && !provided.isEmpty()) {
             o.provided = provided;
         }
-        // 复用同一个早期窗口：平台引导阶段的进度与这里的阶段是连续的，玩家看到的是一条完整进度。
+
         o.earlyWindow = earlyWindow;
-        o.verifyInjections(false);       // 自检在下面用真实游戏类专门做一遍
+        o.verifyInjections(false);       
         try {
             FusionRuntime.Session session = FusionRuntime.load(o);
             System.out.println("[FusionML] 模组加载完成：" + session.mods.size() + " 个（"
@@ -217,9 +210,7 @@ public final class FusionClientMain {
                     System.out.println("           " + line);
                 }
             }
-            // 注册结果：成功的折成一行，只把没成功的展开。
-            // 反过来做（把全部成功项都打出来）在 200 个模组时就是几百行噪声，
-            // 真出问题的那几条会被彻底淹掉。
+
             int ok = 0;
             java.util.List<String> failures = new java.util.ArrayList<>();
             for (String line : session.registration) {
@@ -261,7 +252,6 @@ public final class FusionClientMain {
         return sb.length() == 0 ? "无" : sb.toString();
     }
 
-    /** 反射调用真实主类，把参数原样传过去。 */
     private static void invokeRealMain(String realMain, String[] args) throws Exception {
         ClassLoader loader = FusionClientMain.class.getClassLoader();
         Class<?> mainClass;

@@ -27,12 +27,10 @@ public enum ModFormat {
         this.modAnnotationDesc = modAnnotationDesc;
     }
 
-    /** 元数据文件在 jar 内的路径。 */
     public String metadataPath() {
         return metadataPath;
     }
 
-    /** 用于界面展示的名字。 */
     public String displayName() {
         return displayName;
     }

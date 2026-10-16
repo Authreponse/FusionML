@@ -46,7 +46,7 @@ public final class InnerCallProbe {
                 }
                 ClassFile cf = ClassFile.read(z.read(e));
                 System.out.println("== " + e.name() + "（thisName=" + cf.thisName() + "）");
-                // 收集它引用的所有方法（owner.name:desc），看有没有 getKey/hasKey 之类
+
                 for (String line : cf.methodReferences()) {
                     System.out.println("     " + line);
                 }

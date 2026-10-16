@@ -31,7 +31,6 @@ import java.util.function.Consumer;
  */
 public final class LaunchPlan {
 
-    /** 启动选项。 */
     public static final class Options {
         public String versionId;
         /** 加载器 jar（同时也是 javaagent 包）。 */
@@ -44,19 +43,18 @@ public final class LaunchPlan {
         public String clientId = "fusionml";
         public int maxMemoryMb = 4096;
         public int minMemoryMb;
-        /** 只加载到"模组载入 + 注入完成"就结束，用于验证链路（不弹游戏窗口）。 */
+
         public boolean bootOnly;
         /** 不加载任何模组（排查"是不是模组导致"时很有用）。 */
         public boolean skipMods;
-        /** 客户端 / 服务端。服务端不注册 HUD，也不需要渲染相关的依赖。 */
+
         public boolean client = true;
         public Path javaExe;
         public List<String> extraJvmArgs = new ArrayList<>();
-        /** 缺库时是否自动下载。 */
+
         public boolean downloadMissingLibraries = true;
     }
 
-    /** 一条具体的启动命令。 */
     public record Plan(Path javaExe, List<String> command, Path nativesDir, Path gameDir,
                        String versionId, int javaMajor, Path clientJar, String realMainClass,
                        String classpath, List<Path> libraries, List<Path> modJars) {
@@ -73,13 +71,12 @@ public final class LaunchPlan {
             sb.append("模组        : ").append(modJars.size()).append(" 个")
                     .append(System.lineSeparator());
             sb.append("真实主类    : ").append(realMainClass).append(System.lineSeparator());
-            // 把**实际会用到的**主类也写出来。
-            //
+
             // 上面那个"真实主类"是版本定义里写的（客户端启动器），服务端模式下我们会把它
-            // 换成同平台的服务端启动器 —— 两者不同时，只有这里能看出来。
+
             // 踩过一次：加了服务端主类切换后，只看"真实主类"那行，误以为没生效；
             // 第一次修这个诊断时又取错了位置（命令行最后一项是版本号，不是主类），
-            // 所以这里**按内容找**：命令行里那个"看起来像类名"的项。
+
             String effectiveMain = null;
             for (String a : command) {
                 if (a.endsWith("KnotClient") || a.endsWith("KnotServer")
@@ -103,7 +100,6 @@ public final class LaunchPlan {
         McInstance.Effective version = instance.resolve(o.versionId);
         Path gameDir = instance.gameDir();
 
-        // 1) Java
         Path javaExe = o.javaExe;
         int javaMajor = version.javaMajor;
         if (javaExe == null || !Files.isRegularFile(javaExe)) {
@@ -120,7 +116,6 @@ public final class LaunchPlan {
             }
         }
 
-        // 2) 依赖库：本地有就用本地；缺了且给了下载地址就补下。
         List<McVersion.Library> applicable = version.applicableLibraries();
         List<Path> libraries = new ArrayList<>(applicable.size());
         List<String> missing = new ArrayList<>();
@@ -143,7 +138,7 @@ public final class LaunchPlan {
             libraries.add(local);
         }
         if (!missing.isEmpty()) {
-            // 只列前几条并说明总数：整合包缺库的列表可能很长，全打出来反而看不清重点。
+
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < Math.min(6, missing.size()); i++) {
                 sb.append(System.lineSeparator()).append("    · ").append(missing.get(i));
@@ -155,7 +150,6 @@ public final class LaunchPlan {
             throw new IOException("缺少 " + missing.size() + " 个必需依赖库：" + sb);
         }
 
-        // 3) 原生库
         Path nativesDir = gameDir.resolve(".fusionml").resolve("natives").resolve(o.versionId);
         final List<McVersion.Library> applicableFinal = applicable;
         int extracted = NativeExtractor.extract(new NativeExtractor.McInstanceView() {
@@ -182,16 +176,14 @@ public final class LaunchPlan {
         //     两个原因：
         //       1) 游戏与模组必须由平台类加载器 defineClass，变换器（Mixin、入口点改写）
         //          才会作用到它们；交给系统类加载器就等于把整套变换机制绕过去。
-        //       2) 库如果两边都放，会出现同一个类被加载两份，
-        //          表现为这些库自己类之间的 ClassCastException（极难凭现象定位）。
+
         List<Path> classpathEntries = new ArrayList<>();
         if (o.loaderJar != null) {
             classpathEntries.add(o.loaderJar);
         }
         // 模组包不进 JVM 类路径：由平台运行时自己从 mods 目录发现并按它的规则加入类加载器。
         // 这是官方启动器给 Fabric/NeoForge 版本的标准配置，也是唯一被验证过的配置 ——
-        // 我们硬把模组塞进 JVM 类路径时，会遇到"库被两份加载 / 类路径分组错乱"这类问题。
-        // 我们自己的前置分析直接读 mods 目录，不依赖类路径。
+
         if (!o.skipMods) {
             // 嵌套 jar 也必须进类路径：它们里面就是真正的模组代码与资源。
             // 父进程先把它们解出来放缓存，子进程加载模组时会直接命中同一份缓存。
@@ -208,14 +200,12 @@ public final class LaunchPlan {
                 log.accept("嵌套包解析未完成（不影响启动）：" + t);
             }
         }
-        // 跨端的"补丁原版基座"：它是一份**合并出来的游戏包**（原版 + 对方平台的补丁覆盖），
-        // 用<b>替代</b>原版 jar 的位置交给宿主平台。
-        //
+
         // 为什么必须替代而不是旁挂：宿主平台 0.19 起给类路径分了组，只有"游戏包"那一组里的
-        // jar 才允许提供 net.minecraft.* —— 旁挂的包会被明确拒绝
+
         // （报 "hasn't been exposed to the game"），补丁等于没生效，而现象离原因很远。
         // 替代之后，补丁就长在游戏包里，宿主平台的 Mixin 依旧叠在它之上：
-        // 对方平台的补丁在下、宿主平台的注入在上，两层不互斥。
+
         Path base = null;
         try {
             base = com.fusionml.crossload.PatchedBase.forLaunch(instance, o.modJars,
@@ -251,11 +241,11 @@ public final class LaunchPlan {
         // 我们通过 javaagent 的 premain 前置介入，而不是顶替它 ——
         // 平台的类加载语义（Mixin、入口点注入、类路径分组）与它的启动器不可分割，
         // 顶替它就必须复刻整套语义，代价与风险都远高于收益。
-        //
+
         // 例外：**服务端**。版本定义里写的永远是客户端的启动器
         // （实测 `--server` 时仍打印 `真实主类: net.fabricmc.loader.impl.launch.knot.KnotClient`），
         // 而服务端要用同一个平台的服务端启动器。这不是"顶替平台"，
-        // 只是把平台自己的两个入口选对：两边都是平台官方的启动类。
+
         command.add(serverMainClass(version.mainClass, o.client));
         command.addAll(gameArgs);
 
@@ -285,7 +275,6 @@ public final class LaunchPlan {
         return clientMain;
     }
 
-    /** 组装所有参数占位符的取值。 */
     private static Map<String, String> placeholders(McInstance instance, McInstance.Effective version,
                                                     Path gameDir, Path nativesDir,
                                                     Options o) {
@@ -322,11 +311,10 @@ public final class LaunchPlan {
             jvm.add("-Xms" + o.minMemoryMb + "m");
         }
         jvm.add("-Djava.library.path=" + nativesDir.toAbsolutePath());
-        // 刻意不设 -Dfile.encoding：Java 18+ 默认已经是 UTF-8，而控制台输出流
-        // （stdout.encoding）默认跟随当前代码页。一旦强行指定 UTF-8，在中文 GBK 控制台上
+
         // 中文日志会整片变乱码 —— 这个坑比它想解决的问题更常见。
         // 但要把父进程的输出编码透传给子进程：否则父子两段日志会是两种编码，
-        // 无论是肉眼看终端还是把日志重定向进文件，都会有一半是乱码。
+
         String outEncoding = System.getProperty("stdout.encoding");
         if (outEncoding == null || outEncoding.isBlank()) {
             outEncoding = System.getProperty("native.encoding");
@@ -340,12 +328,12 @@ public final class LaunchPlan {
         jvm.add("-Dfusion.version=" + o.versionId);
         jvm.add("-Dfusion.bootOnly=" + o.bootOnly);
         jvm.add("-Dfusion.skipMods=" + o.skipMods);
-        // 前置分析（javaagent 的 premain 阶段）需要的上下文。
+
         jvm.add("-Dfusion.preflight=" + !o.skipMods);
         jvm.add("-Dfusion.modsDir=" + instance.gameDir().toAbsolutePath().resolve("mods"));
-        // 运行侧：服务端不注册 HUD，也不做任何渲染相关的事。
+
         jvm.add("-Dfusion.client=" + o.client);
-        // "游戏包"是谁：启用了跨端补丁基座时，就是那份合并出来的包（原版 + 对方平台补丁），
+
         // 它已经在类路径上替代了原版 jar。游戏进程里的自检、版本判定、密封修补扫描
         // 都必须看同一个包，否则两边说的不是同一份文件。
         String gameJar = System.getProperty(com.fusionml.crossload.PatchedBase.PROP_RESOLVED, "");
@@ -353,30 +341,26 @@ public final class LaunchPlan {
             gameJar = version.clientJar.toAbsolutePath().toString();
         }
         if (!gameJar.isBlank()) {
-            // 交给接管主类，用来对真实游戏类做注入自检（它比在类路径里翻找可靠得多）。
+
             jvm.add("-Dfusion.clientJar=" + gameJar);
         }
         if (!System.getProperty(com.fusionml.crossload.PatchedBase.PROP_RESOLVED, "").isBlank()) {
             // 宿主平台的"类路径隔离"只允许它认定的那份游戏包提供 net.minecraft.*。
-            // 我们交给它的是合并出来的游戏包（原版 + 对方平台补丁），但它的分组判定不认识
-            // 这个新文件名，于是会拒绝加载并报 "hasn't been exposed to the game" ——
+
             // 补丁等于没生效，而现象离原因很远（实测踩过）。
-            // 这个开关是宿主平台自己提供的：打开后 isValidParentUrl 直接放行，
-            // 类路径上的游戏类照常可加载。我们并没有引入重复的游戏类
+
             // （原版包已经不在类路径上了），所以放行是安全的。
             jvm.add("-Dfabric.debug.disableClassPathIsolation");
         }
-        // 这次类路径里到底有没有、是哪一份"补丁原版基座"：游戏进程里的报告要如实写出来，
-        // 免得事后只能靠"当时是哪个整合包"去猜。
+
         String base = System.getProperty(com.fusionml.crossload.PatchedBase.PROP_RESOLVED, "");
         if (!base.isBlank()) {
             jvm.add("-D" + com.fusionml.crossload.PatchedBase.PROP_RESOLVED + "=" + base);
         }
         // 模组 Mixin 的目标清单也要**显式交给游戏进程**。
-        //
+
         // 这里踩过一次，代价是一整局启动崩掉，所以写下来：
-        // 启动器进程里 System.setProperty 设的属性**不会自动过继给游戏进程** ——
-        // 游戏进程是一个全新的 JVM，只有命令行上 -D 传过去的才存在。
+
         // 漏传的后果不是"少一条日志"，而是：游戏进程里的诊断/预热代码读不到这份黑名单，
         // 于是照旧提前加载了模组的 Mixin 目标，报
         // "MixinTargetAlreadyLoadedException ... DeferredRegister was loaded too early"，
@@ -388,7 +372,7 @@ public final class LaunchPlan {
         }
         // 黑名单的文件通道。**这里只传路径，不传名单本身** —— 实测踩过一次：
         // 本整合包扫出 846 个 Mixin 目标，拼成 -D 参数约 34KB，超过 Windows 命令行上限，
-        // 进程以 "CreateProcess error=206, 文件名或扩展名太长" 起不来，
+
         // 而日志里没有崩溃也没有报错，看起来像"问题自己好了"，极具迷惑性。
         String targetsFile = System.getProperty(
                 com.fusionml.crossload.PatchedBase.PROP_TARGETS_FILE, "");
@@ -476,7 +460,6 @@ public final class LaunchPlan {
         return sb.toString();
     }
 
-    /** 启动进程（继承当前终端输入输出，方便直接看到游戏日志）。 */
     public static Process launch(Plan plan, boolean inheritIO) throws IOException {
         ProcessBuilder pb = new ProcessBuilder(plan.command());
         pb.directory(plan.gameDir().toFile());
@@ -486,7 +469,6 @@ public final class LaunchPlan {
         return pb.start();
     }
 
-    /** 便于日志展示：把命令行拼成一行可读文本（需要时加引号）。 */
     public static String prettyCommand(List<String> command) {
         StringBuilder sb = new StringBuilder(command.size() * 48);
         for (String c : command) {

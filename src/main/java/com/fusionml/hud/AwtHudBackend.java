@@ -37,7 +37,6 @@ public final class AwtHudBackend implements HudBackend {
         this.fontFamily = pickFamily();
     }
 
-    /** 挑一个当前系统真正装了的、能显示中文的字体族。 */
     private static String pickFamily() {
         java.util.Set<String> available = new java.util.HashSet<>();
         for (String f : java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment()

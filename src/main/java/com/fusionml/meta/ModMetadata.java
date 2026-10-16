@@ -89,7 +89,6 @@ public final class ModMetadata {
         return raw;
     }
 
-    /** 展示名：没写 displayName 就退回 modId。 */
     public String display() {
         if (name != null && !name.isBlank()) {
             return name;
@@ -156,7 +155,6 @@ public final class ModMetadata {
         }
     }
 
-    /** 界面用的一行摘要。 */
     public String summary() {
         StringBuilder sb = new StringBuilder();
         sb.append(display()).append("  ").append(version).append("  [").append(format.displayName()).append(']');

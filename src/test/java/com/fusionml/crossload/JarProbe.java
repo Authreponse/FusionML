@@ -39,7 +39,7 @@ public final class JarProbe {
                 System.out.println("  " + t.id() + " → jar 不存在：" + jar);
                 continue;
             }
-            // 让 jar 自己打印它读到的出厂设定：这能验证"清单属性"真的写进去了，
+
             // 而不是只验证我们内存里的那张表。
             ProcessBuilder pb = new ProcessBuilder(java,
                     "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8",

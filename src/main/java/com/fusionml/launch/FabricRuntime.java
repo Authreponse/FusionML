@@ -11,24 +11,22 @@ import java.util.List;
 import java.util.function.Consumer;
 
 // 引导 Fabric 官方运行时（内嵌驱动）。
-//
+
 // 分工要讲清楚，否则很容易越界：
 //   * 我们的加载器负责：发现、并行、类索引、字节码注入、三端聚合与性能优化；
 //   * 模组运行时所需的 Fabric 事实（游戏在哪、版本多少、类路径是什么、Mixin 怎么接）
 //     由 Fabric 自己的实现负责 —— 我们只是把它按正确顺序启动起来。
-//
+
 // 启动顺序严格照 Knot 来，一步都不能少，也不能多：
 //   1. FabricLauncherBase.setLauncher(我们的 launcher)   ← 必须是第一个，否则 load() 直接 NPE
-//   2. new MinecraftGameProvider()                        ← 用它自带的、针对 Minecraft 的 GameProvider
+
 //   3. provider.locateGame(launcher, args)                ← 由它去找游戏 jar 与版本
-//   4. provider.initialize(launcher)
+
 //   5. FabricLoaderImpl.INSTANCE.setGameProvider(provider) + load()
-//   6. 之后交给 provider.getEntrypoint()（游戏真实主类），入口点改写器会把
-//      模组的 onInitialize 注入到它的 main 里。
-//
+
 // 关键教训（踩过一次）：不要再调用版本定义里的 mainClass（那是 KnotClient）。
 // KnotClient 本身就是 Fabric 的启动器，它也会去 setLauncher，于是会直接抛
-// "Duplicate setLauncher call!"。我们已经取代了 Knot，就该直接交给游戏本体的主类。
+
 public final class FabricRuntime {
 
     private static volatile String entrypoint;
@@ -40,7 +38,6 @@ public final class FabricRuntime {
     private FabricRuntime() {
     }
 
-    /** 引导成功时游戏真实主类（入口点改写器会往它的 main 里注入模组初始化）。 */
     public static String entrypoint() {
         return entrypoint;
     }
@@ -104,12 +101,12 @@ public final class FabricRuntime {
         }
         try {
             // 1. 用 Fabric 自带的 Minecraft GameProvider（它知道怎么找游戏、认版本、
-            //    以及如何把模组入口点注入到游戏主类里）
+
             Object provider = mcProviderClass.getDeclaredConstructor().newInstance();
             // 2. 创建平台的类加载器。
             //    KnotClassLoader 是包私有的，但它是"让 Mixin 真正生效"的唯一入口：
             //    它会在 defineClass 之前把字节码交给变换器。用系统类加载器加载游戏，
-            //    等于绕开整套变换机制。
+
             Object classLoader = createGameClassLoader(cl, mcProviderClass, providerIface, provider);
             gameClassLoader = classLoader;
             gameProvider = provider;
@@ -121,30 +118,29 @@ public final class FabricRuntime {
             Object impl = implClass.getField("INSTANCE").get(null);
             // 顺序很关键：必须先 setGameProvider 再 locateGame/initialize。
             // 反过来的话，provider 内部会去查 FabricLoaderImpl.getGameProvider()，
-            // 拿到 null 后直接抛 "game provider not set (yet)"。
+
             implClass.getMethod("setGameProvider", providerIface).invoke(impl, provider);
             providerIface.getMethod("locateGame", launcherIface, String[].class)
                     .invoke(provider, launcher, gameArguments);
             providerIface.getMethod("initialize", launcherIface).invoke(provider, launcher);
             // 5. 交给 Fabric 自己加载模组
             implClass.getMethod("load").invoke(impl);
-            // 解锁类路径：platform 会在这里告诉我们"哪些条目可以向游戏暴露、
+
             // 哪些该委派给父加载器"。漏掉这一步的表现是：
             //   * 库被两个类加载器各加载一份 → 库自身类之间 ClassCastException；
             //   * 或者库完全没被暴露给游戏 → joptsimple.ValueConverter 之类的 ClassNotFoundException。
             // 这两个现象我们各踩过一次，所以这一步不能省。
             providerIface.getMethod("unlockClassPath", launcherIface).invoke(provider, launcher);
             // 6. 初始化 Mixin 通道 —— 这一步不能省，而且必须在游戏类被加载之前完成。
-            //
+
             // 少了它会出现一个非常误导的现象：Fabric 的日志明明写着 "Loading 151 mods"，
-            // 依赖树也解析得整整齐齐，但进游戏后**一个模组都没生效**：
+
             // 因为 Mixin 的字节码转换器没装上，于是
             //   * 模组自己的 Mixin 不会被应用；
-            //   * 更关键的：把模组入口点注入到游戏主类里的那个改写也不会发生，
-            //     所以 onInitialize 从来没被调用过。
+
             // 换句话说"模组全部加载失败"其实是"模组全部没启动"。
             initMixin(cl, implClass, impl, launcher);
-            // 6. 记录真实主类
+
             Object ep = providerIface.getMethod("getEntrypoint").invoke(provider);
             entrypoint = ep == null ? null : ep.toString();
             bootstrapped = true;
@@ -174,7 +170,7 @@ public final class FabricRuntime {
         java.lang.reflect.Constructor<?> ctor = loaderClass.getDeclaredConstructor(boolean.class,
                 envTypeClass, providerIface);
         ctor.setAccessible(true);
-        // 第一个参数是"是否开发环境"。我们运行的是正式环境，传 false。
+
         return ctor.newInstance(Boolean.FALSE, envType, provider);
     }
 
@@ -243,7 +239,7 @@ public final class FabricRuntime {
         Class<?> base = Class.forName("net.fabricmc.loader.impl.launch.FabricLauncherBase", false, cl);
         Object existing = base.getMethod("getLauncher").invoke(null);
         if (existing != null) {
-            // 已经装过（同一进程内重复引导）就直接用。
+
             return existing;
         }
         Object launcher = Proxy.newProxyInstance(cl, new Class<?>[] {launcherIface},
@@ -261,9 +257,9 @@ public final class FabricRuntime {
             Object props = base.getMethod("getProperties").invoke(null);
             if (props == null) {
                 // FabricLauncherBase 的属性表默认是 null，需要主动建一个。
-                // 正常路径下是 Knot 在构造时调用（受保护的）setProperties 初始化的；
+
                 // 我们取代了 Knot，就得自己补上 —— 否则后续 Mixin 引导会直接 NPE
-                // （它就是去这张表里查配置的）。
+
                 Method setter = base.getDeclaredMethod("setProperties", java.util.Map.class);
                 setter.setAccessible(true);
                 java.util.Map<String, Object> fresh = new java.util.LinkedHashMap<>();
@@ -277,7 +273,7 @@ public final class FabricRuntime {
                 map.putIfAbsent("fabric.development", Boolean.FALSE);
             }
         } catch (Throwable ignored) {
-            // 属性表拿不到也不致命，后续报错会更具体。
+
         }
     }
 
@@ -309,7 +305,7 @@ public final class FabricRuntime {
                     out.add("   " + d);
                 }
             } catch (Throwable ignored) {
-                // 没有 getDetails 就跳过
+
             }
             if (cur.getCause() == cur) {
                 break;
@@ -455,7 +451,7 @@ public final class FabricRuntime {
                             false, cl);
                     mappingConfiguration = c.getDeclaredConstructor().newInstance();
                 } catch (Throwable ignored) {
-                    // 构造不出来就保持 null，下一轮的报错会指出还缺什么。
+
                 }
             }
             return mappingConfiguration;
@@ -469,7 +465,7 @@ public final class FabricRuntime {
                 // 游戏与模组交给自己定义，其余（依赖库）交给父加载器。
                 // 之前我只返回"游戏 + 模组"，结果平台类加载器认为库从未被暴露，
                 // 游戏解析参数时直接 ClassNotFoundException: joptsimple.ValueConverter
-                // —— 报错文本里"hasn't been exposed to the game"说的就是这件事。
+
                 String cp = System.getProperty("java.class.path", "");
                 for (String part : cp.split(java.util.regex.Pattern.quote(File.pathSeparator))) {
                     if (!part.isBlank()) {

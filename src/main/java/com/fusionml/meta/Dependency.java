@@ -2,7 +2,6 @@ package com.fusionml.meta;
 
 import java.util.Locale;
 
-/** 一条模组依赖声明（三端信息统一成这个形状）。 */
 public record Dependency(String modId, boolean mandatory, String versionRange, Ordering ordering,
                          Side side, String reason) {
 
@@ -22,7 +21,6 @@ public record Dependency(String modId, boolean mandatory, String versionRange, O
         }
     }
 
-    /** 生效侧。 */
     public enum Side {
         BOTH, CLIENT, SERVER;
 
@@ -37,7 +35,6 @@ public record Dependency(String modId, boolean mandatory, String versionRange, O
             };
         }
 
-        /** 在当前运行侧下是否需要加载。 */
         public boolean appliesTo(boolean client) {
             return this == BOTH || (client ? this == CLIENT : this == SERVER);
         }

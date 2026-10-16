@@ -23,7 +23,6 @@ import java.util.Locale;
  */
 public final class InstanceLayout {
 
-    /** 标准子目录（相对游戏根目录）。 */
     public static final String[] STANDARD_DIRS = {
             "mods", "config", "lib", "libraries", "versions",
             "resourcepacks", "shaderpacks", "saves", "logs", "crash-reports",
@@ -36,18 +35,11 @@ public final class InstanceLayout {
     /** 加载器自身的状态目录。 */
     public static final String STATE_DIR = ".fusionml";
 
-    /** 安装清单文件名（放在状态目录里，记录本次安装创建/写入了什么）。 */
     public static final String MANIFEST = STATE_DIR + "/install-manifest.txt";
 
     private InstanceLayout() {
     }
 
-    /**
-     * 猜测默认游戏目录。
-     *
-     * <p>Windows：{@code %APPDATA%\.minecraft}；macOS：{@code ~/Library/Application Support/minecraft}；
-     * 其它：{@code ~/.minecraft}。猜不到就返回当前目录，由调用方让用户自己指定。
-     */
     public static Path detectDefaultGameDir() {
         String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         String home = System.getProperty("user.home", ".");
@@ -64,7 +56,6 @@ public final class InstanceLayout {
         return Path.of(home, ".minecraft");
     }
 
-    /** 本次 ensure 的结果。 */
     public record EnsureResult(List<String> createdDirs, List<String> skipped, Path gameDir) {
         public String summary() {
             if (createdDirs.isEmpty()) {
@@ -74,12 +65,6 @@ public final class InstanceLayout {
         }
     }
 
-    /**
-     * 补齐标准目录。
-     *
-     * <p>语义刻意保持极窄：只对"不存在的目录"做创建；已存在的一律不动、不清理、不覆盖。
-     * 这样即使玩家把某个标准目录改成符号链接或改过权限，也不会被我们破坏。
-     */
     public static EnsureResult ensure(Path gameDir) throws IOException {
         List<String> created = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
@@ -135,17 +120,14 @@ public final class InstanceLayout {
         return gameDir.resolve(LOADER_JAR_RELATIVE);
     }
 
-    /** 早期窗口配置文件的位置。 */
     public static Path earlyWindowConfig(Path gameDir) {
         return gameDir.resolve("config/fusion-earlywindow.properties");
     }
 
-    /** 安装清单位置。 */
     public static Path manifest(Path gameDir) {
         return gameDir.resolve(MANIFEST);
     }
 
-    /** 写一份人类可读的安装清单。 */
     public static void writeManifest(Path gameDir, List<String> lines) throws IOException {
         Path p = manifest(gameDir);
         Files.createDirectories(p.getParent());
@@ -157,7 +139,6 @@ public final class InstanceLayout {
         Files.writeString(p, sb.toString(), StandardCharsets.UTF_8);
     }
 
-    /** 读回安装清单（卸载时用来只删自己建过的东西）。 */
     public static List<String> readManifest(Path gameDir) throws IOException {
         Path p = manifest(gameDir);
         if (!Files.isReadable(p)) {

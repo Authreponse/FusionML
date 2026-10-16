@@ -8,41 +8,46 @@ import com.fusionml.runtime.FusionRuntime;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-// 前置分析：在平台运行时启动之前完成我们自己的那部分工作。
-//
 // 为什么放在 javaagent 的 premain 而不是接管主类：
 // 平台的运行时（Fabric 的 Knot、NeoForge 的 ModLauncher）与它的类加载器是**不可分割**的 ——
 // 模组的 Mixin、入口点注入、类路径分组全靠它自己的类加载器语义。
-// 我们接管主类就得复刻这一整套语义，稍有偏差就出现"库被两份加载、日志系统失灵"这类
+
 // 极难定位的问题（实测踩了三次）。而平台自己当主类时，这套语义天然正确。
-//
-// 所以分工改成：
+
 //   * 我们（premain）：早期窗口、并行发现、类索引、依赖分析、注入规则装配 —— 全部前置完成；
 //   * 平台（main）：按它自己的方式加载运行时、应用 Mixin、调用模组入口点；
-//   * 我们的字节码注入走 javaagent，与类由谁加载无关，因此照常生效。
+
 public final class Preflight {
 
     private Preflight() {
     }
 
-    /** 是否处于"只做前置分析后退出"的验证模式。 */
     public static boolean bootOnly() {
         return Boolean.parseBoolean(System.getProperty("fusion.bootOnly", "false"));
     }
 
     public static void run() {
         String gameDirProp = System.getProperty("fusion.gameDir", "");
+        // 走官方 server.jar（bundler）时没人设 fusion.gameDir：
+
+        // 之前这里直接 return，结果服务端"静默什么都不做"——比报错更难查。
+        if (gameDirProp.isBlank()) {
+            gameDirProp = System.getProperty("user.dir", "");
+        }
         if (gameDirProp.isBlank()) {
             return;
         }
         Path gameDir = Path.of(gameDirProp);
         Path modsDir = gameDir.resolve("mods");
-        String version = System.getProperty("fusion.version", "?");
-        // 客户端 / 服务端：服务端不注册 HUD，也不做任何与渲染相关的事。
+        String version = System.getProperty("fusion.version", "");
         boolean client = Boolean.parseBoolean(System.getProperty("fusion.client", "true"));
+        // 服务端没有 -Dfusion.version，从 server.jar 的版本 json 里认。
+        if (version.isBlank()) {
+            version = client ? "?" : ServerSide.versionOf(gameDir);
+        }
         String platform = detectPlatform(version);
         long startedAt = System.nanoTime();
-        // 同时打到控制台：早期窗口是给玩家看的，日志是给排查用的，两者都需要。
+
         java.util.function.Consumer<String> console = line ->
                 System.out.println("[FusionML/前置] " + line);
         console.accept("开始前置分析：版本 " + version);
@@ -51,21 +56,20 @@ public final class Preflight {
 
         EarlyWindowConfig ewConfig = EarlyWindowConfig.load();
         // 不要自动关闭：关闭时机交给游戏内主加载页面（它画出第一帧后我们才收窗口）。
-        // 这样平台引导期间不会出现"窗口关了、游戏还没出来"的黑屏空档。
+
         ewConfig.closeOnFinish = false;
-        // 服务端一律用控制台实现，不建图形窗口。
-        //
+
         // 两个原因，都是实测出来的：
-        //   1) 专用服务器上弹一个窗口本身就是错的（服务器常常是无界面运行的）；
+
         //   2) Swing 会拉起 AWT 事件线程，服务器进程结束后 JVM 迟迟不退
         //      （实测：服务器已经"Stopping server"，进程还活着）。
-        // 显式给了 -Dfusion.earlywindow=swing 时仍然尊重使用者，但服务端默认走控制台。
+
         String earlyWindowChoice = System.getProperty("fusion.earlywindow", "");
         if (!client && earlyWindowChoice.isBlank()) {
             earlyWindowChoice = "console";
         }
         EarlyWindow window = EarlyWindows.create(ewConfig, earlyWindowChoice);
-        // 诊断用：把选中的实现报出来。
+
         // 上一次"早期窗口没出现"就是因为这条信息不可见，无法区分
         // "窗口创建失败"、"被判定为无头环境"、还是"根本没被调用"。
         console.accept("早期窗口实现：" + window.getClass().getName()
@@ -87,8 +91,7 @@ public final class Preflight {
             FusionRuntime.Options o = new FusionRuntime.Options();
             o.modsDir(modsDir);
             o.client(true);
-            // 注册交给平台运行时去做（它才是模组语义的权威）；
-            // 我们只做发现、索引、依赖分析与注入规则装配。
+
             o.registerMods(false);
             o.verifyInjections(false);
             o.earlyWindow = window;
@@ -117,7 +120,7 @@ public final class Preflight {
                 }
                 window.finish("前置分析完成，交给平台运行时");
                 if (bootOnly()) {
-                    // 验证模式：前置阶段做完就退出，用来单独确认这一层是好的。
+
                     window.log("（验证模式：前置分析完成后退出）");
                     System.out.println("[FusionML] 前置分析完成（验证模式，不进入平台运行时）");
                     try {
@@ -129,14 +132,14 @@ public final class Preflight {
                     System.exit(0);
                 }
                 if (!client) {
-                    // 服务端没有"游戏窗口随后出现"这回事：早期窗口留着的唯一结果就是
+
                     // 一直挡在桌面上，直到 75 秒兜底超时才关（实测就是这样）。
-                    // 所以服务端在前置分析做完时立刻收掉它。
+
                     window.finish("服务端前置分析完成");
                     window.close();
                     System.out.println("[FusionML] 服务端模式：早期窗口已关闭");
                 } else {
-                    // 交给游戏内页面接手：它会画出第一帧后关闭这个窗口。
+
                     com.fusionml.hud.FusionHud.handOverEarlyWindow(window);
                     startWindowKeeper(window);
                 }
@@ -147,12 +150,11 @@ public final class Preflight {
             try {
                 window.log("前置分析失败：" + t);
             } catch (Throwable ignored) {
-                // 忽略
+
             }
         } finally {
             // 注意：非验证模式下**故意不关**窗口。
-            // 平台启动后还要 20 秒左右才轮到我们在游戏内画第一帧，
-            // 这段时间若没有窗口兜着，玩家看到的就是黑屏。
+
             if (bootOnly()) {
                 window.close();
             }
@@ -172,12 +174,12 @@ public final class Preflight {
             long deadline = System.currentTimeMillis() + 75_000;
             while (System.currentTimeMillis() < deadline) {
                 if (com.fusionml.hud.FusionHud.earlyWindowClosed()) {
-                    return;                       // 游戏内页面已接手并关掉了它
+                    return;                       
                 }
                 if (com.fusionml.hud.FusionHud.isGameLoopStarted()
                         || gameWindowUp() || gameIsRunning()) {
-                    // 游戏窗口已经存在：早期窗口的使命结束，再留着就是挡路。
-                    sleep(1500);                  // 让游戏内页面有机会先画出来，衔接更顺
+
+                    sleep(1500);                  
                     if (!com.fusionml.hud.FusionHud.earlyWindowClosed()) {
                         try {
                             window.finish("游戏已就绪");
@@ -196,14 +198,13 @@ public final class Preflight {
                 window.close();
                 System.out.println("[FusionML] 早期窗口超时关闭（兜底）");
             } catch (Throwable ignored) {
-                // 忽略
+
             }
         }, "fusion-early-window-keeper");
         keeper.setDaemon(true);
         keeper.start();
     }
 
-    /** 游戏自己的窗口是否已经创建（用 GLFW 句柄判断，最直接）。 */
     private static boolean gameWindowUp() {
         try {
             Class<?> mcClass = Class.forName("net.minecraft.client.Minecraft");
@@ -274,7 +275,7 @@ public final class Preflight {
      */
     private static void registerGameHudHook(FusionRuntime.Session session,
                                             java.util.function.Consumer<String> console) {
-        // 服务端没有任何渲染流程，注册 HUD 只会平白多一条永远不命中的规则。
+
         if (!Boolean.parseBoolean(System.getProperty("fusion.client", "true"))) {
             console.accept("服务端模式：跳过游戏内 HUD 注册");
             return;
@@ -282,16 +283,16 @@ public final class Preflight {
         // 挂载点选 Hud.extractRenderState：它的签名里自带渲染提取器，是唯一验证安全的挂载点。
         // （主加载页面已撤销：它要往 TitleScreen 注入，而那个类改写后触发 ClassFormatError 崩游戏。）
         // 钩子用 Object 形参接收游戏类型，这样加载器 jar 不绑死在任何游戏类上；
-        // 压栈的游戏类型传给 Object 形参在字节码层面完全合法。
+
         session.pipeline.addHook(new com.fusionml.bytecode.HookInjector.Hook(
                 "net/minecraft/client/gui/Hud", "extractRenderState",
                 "(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V",
                 "com/fusionml/hud/FusionHud", "onHudExtract",
                 "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V",
                 com.fusionml.bytecode.HookInjector.Point.HEAD));
-        // 早期窗口的关闭信号：给游戏主循环入口挂一个钩子。
+
         // 它的语义正好是"游戏窗口已就绪、开始跑帧循环了"，比在外部线程里
-        // 反射探测 Minecraft 实例可靠得多（那个探测会触发游戏类的初始化，
+
         // 在守护线程上很容易失败或卡住，实测就因此没能及时关掉窗口）。
         session.pipeline.addHook(new com.fusionml.bytecode.HookInjector.Hook(
                 "net/minecraft/client/Minecraft", "run", "()V",
@@ -316,7 +317,7 @@ public final class Preflight {
      */
     private static void registerCrossPlatformHook(FusionRuntime.Session session, String platform,
                                                  java.util.function.Consumer<String> console) {
-        // 宿主平台名交给游戏进程里的桥使用（同一份类可能有两份，系统属性是唯一可靠通道）。
+
         System.setProperty("fusion.hostPlatform", platform);
         // Mixin 阶段切换的挂载点：这是"能安全碰 Mixin 的最早时刻"，
         // 也是任何一次配置定型之前的最后机会。理由写在 CrossPlatformBridge 的注释里。
@@ -326,24 +327,28 @@ public final class Preflight {
                 "com/fusionml/launch/CrossPlatformBridge", "onMixinPhaseChange",
                 "(Ljava/lang/Object;)V",
                 com.fusionml.bytecode.HookInjector.Point.HEAD));
-        // 跨端模组的入口点驱动：两个挂载点都与宿主是哪一端无关，
-        // 所以两端都挂（对方平台的类由对方的运行时包提供，见 bridgeCrossPlatform）。
-        //
-        // 跨端模组的入口点驱动：挂在"原版引导已经走完、游戏主循环刚要开始"的位置。
-        //
+
         // 时机是实测出来的，不是猜的。试过更早的两个位置，都被原版机制挡住：
-        //   * Bootstrap#bootStrap 头部：bootstrapped 还没置位，模组构造时的
-        //     DeferredRegister 直接撞 "Not bootstrapped (called from registry ...)"；
-        //   * BuiltInRegistries#bootStrap 头部：注册表对象建好了但 Holder 还没绑定，
-        //     DeferredRegister 建 DeferredItem 时会撞 "Trying to access unbound value"。
-        // 客户端与服务端各挂一个（整合服务器起来时第二个会因已装载而跳过）。
+
+        // 这两个挂载点用"派发模式"（hookOwner = HookInjector.DISPATCH_OWNER）而不是
+        // 直接指向 CrossLoad，原因是服务端的类加载现实：
+        // 官方 server.jar 是个 bundler，它新建 URLClassLoader 时取的是
+        // getClass().getClassLoader().getParent()（= PlatformClassLoader，实测反汇编确认），
+        // **刻意跳过 AppClassLoader**。所以定义 net.minecraft.* 的那个加载器
+
+        // NoClassDefFoundError —— 而且异常发生在进入方法体之前，CrossLoad 里
+        // 写多少 try/catch 都拦不住（实测就是这个崩法）。
+
+        com.fusionml.bytecode.HookInjector.ensureDispatchDefault("gameReady");
+        com.fusionml.bytecode.HookInjector.registerDispatch("gameReady",
+                self -> com.fusionml.crossload.CrossLoad.onGameReady(self));
         session.pipeline.addHook(new com.fusionml.bytecode.HookInjector.Hook(
                 "net/minecraft/client/Minecraft", "run", "()V",
-                "com/fusionml/crossload/CrossLoad", "onGameReady",
+                com.fusionml.bytecode.HookInjector.DISPATCH_OWNER, "gameReady",
                 "(Ljava/lang/Object;)V", com.fusionml.bytecode.HookInjector.Point.HEAD));
         session.pipeline.addHook(new com.fusionml.bytecode.HookInjector.Hook(
                 "net/minecraft/server/MinecraftServer", "runServer", "()V",
-                "com/fusionml/crossload/CrossLoad", "onGameReady",
+                com.fusionml.bytecode.HookInjector.DISPATCH_OWNER, "gameReady",
                 "(Ljava/lang/Object;)V", com.fusionml.bytecode.HookInjector.Point.HEAD));
         if ("Fabric".equals(platform)) {
             session.pipeline.addHook(new com.fusionml.bytecode.HookInjector.Hook(
@@ -357,7 +362,7 @@ public final class Preflight {
                     + "MinecraftServer#runServer（驱动入口点与注册表）");
         } else {
             // NeoForge/Forge 的 Mixin 服务由 ModLauncher 拉起，引导方法名随版本变动；
-            // 跨端包在启动参数里就写进它的 legacyClassPath，
+
             // Mixin 配置则由游戏内的兜底路径注册（见 FusionHud.onGameLoopStarted）。
             console.accept("跨端挂载点：" + platform
                     + " 走启动参数 + 游戏内兜底注册（该端 Mixin 引导方法名随版本变动）；"
@@ -399,7 +404,7 @@ public final class Preflight {
         java.util.List<String> labels = new java.util.ArrayList<>();
         for (com.fusionml.meta.ModMetadata mod : session.mods) {
             // 嵌套包（JiJ）暂不参与：它们的 jarIndex 指向解压缓存里的条目，
-            // 路径语义与 mods 目录不同，等真有整合包这么用时再补。
+
             if (mod.nested || mod.jarIndex() < 0 || mod.jarIndex() >= jars.size()) {
                 continue;
             }
@@ -426,14 +431,12 @@ public final class Preflight {
         }
         CrossPlatformBridge.setForeignJars(foreignJars);
         CrossPlatformBridge.setForeignMixinConfigs(foreignConfigs);
-        // "对方平台的运行时"：事件总线与 API 类。
-        //
-        // 只做非宿主那一端：宿主自己的运行时本来就在跑。
+
         // 解析来源是本机同版本的该端实例（整合包通常本来就有另一端的启动项），
         // 拿不到就如实报出来，而不是让模组在半路抛 NoClassDefFoundError。
         // 非宿主那一端是谁：按"跨端包里实际出现的格式"判断，而不是按宿主反过来猜。
         // 一个整合包里理论上可以同时有 NeoForge 与 Forge 模组；本机目前的实现是
-        // 一次只借一端的运行时，因此取数量多的那一端，并把另一端的数量如实报出来。
+
         int neo = 0;
         int forge = 0;
         for (com.fusionml.meta.ModMetadata mod : session.mods) {
@@ -464,10 +467,9 @@ public final class Preflight {
             runtimeJars = found.jars();
             CrossPlatformBridge.setForeignRuntime(found.jars());
             console.accept("跨端运行时：" + found.summary());
-            // 运行时按"有没有 FML 引导本体"拆成两拨，这是本轮修好
-            // LambdaConversionException 的关键之一：
+
             //   · 对方 API（neoforge / bus / …）必须早登记 —— 补丁原版类在定义时
-            //     就要解析 IRegistryExtension、BaseMappedRegistry 这些类型；
+
             //   · FML 引导本体必须晚登记 —— 早登记会让跨端模组的 Mixin 插件
             //     在平台还没初始化时去用它，直接崩在 "There is no current FML Loader"。
             java.util.List<Path> early =
@@ -475,9 +477,9 @@ public final class Preflight {
             java.util.List<Path> late =
                     com.fusionml.crossload.ForeignRuntime.lateSubset(found.jars());
             CrossPlatformBridge.setForeignEarlyRuntime(early);
-            // 对方引导包（FML）要不要也早登记：只有"类路径里放的是对方平台补丁过的
+
             // 原版字节"时才必须 —— 那些字节的静态初始化会回调 FML，
-            // 而原版引导在游戏主函数里，早于我们的驱动挂载点。
+
             // 没有补丁基座时保持"晚登记"，因为早登记 FML 会让跨端模组的 Mixin 插件
             // 在平台没起来时去用它（那条路会直接崩）。
             String fmlMode = System.getProperty("fusion.fmlState", "auto").trim();
@@ -502,10 +504,9 @@ public final class Preflight {
         } catch (Throwable t) {
             console.accept("跨端运行时解析失败（跨端模组将只做 Mixin，不做入口点驱动）：" + t);
         }
-        // 原版"密封类型"的解除密封：对方平台的 API 类里有相当一部分是"靠对方平台给原版
-        // 打补丁加 permits 才能存在"的实现者；宿主上是没有那份补丁的，不补这一手，
+
         // 加载对方的类会以 IncompatibleClassChangeError 失败（报的话听起来像模组写错了）。
-        // 名单是**算出来的**：只覆盖"本机实际装载的跨端包"直接需要的那些原版类型。
+
         try {
             String clientJar = System.getProperty("fusion.clientJar", "");
             if (!clientJar.isBlank()) {
@@ -527,8 +528,7 @@ public final class Preflight {
         } catch (Throwable t) {
             console.accept("跨端密封修补计算失败（相关跨端模组可能加载不了）：" + t);
         }
-        // 游戏内的兜底路径也用同一份配置：挂载点万一没挂上（例如平台方法签名变了），
-        // 至少还有一次注册机会，而且日志会明确写出走的是兜底。
+
         com.fusionml.hud.FusionHud.setExtraMixinConfigs(foreignConfigs);
         console.accept("跨端：" + foreignJars.size() + " 个非 " + host.displayName() + " 模组包（"
                 + String.join("、", labels) + (labels.size() >= 6 ? "…" : "") + "），Mixin 配置 "
@@ -557,4 +557,3 @@ public final class Preflight {
         return s.substring(0, cut);
     }
 }
-

@@ -31,9 +31,9 @@ import java.util.TreeSet;
 public final class ClassDiff {
 
     public static void main(String[] args) throws Exception {
-        // 参数可以是"补丁 jar 原版 jar"两个路径，也可以直接是类名——
+
         // 后者时按本机惯例自己找（与自检同一套来源，避免两边说的不是同一份文件）。
-        // 顺带把两端可能带上的引号剥掉：命令行经过几层转发时很容易多出引号，
+
         // 而 Path.of 会因为那个字符直接失败（这个坑刚踩过）。
         List<String> clean = new ArrayList<>();
         for (String a : args) {
@@ -141,7 +141,6 @@ public final class ClassDiff {
         System.out.println("   耗时 " + ((System.nanoTime() - t0) / 1_000_000) + " ms");
     }
 
-    /** 需要"留给原版"的类：补丁动到了原版已有的成员（注入点最可能就在这些类里）。 */
     public static Set<String> memberChangingClasses(Path patchedJar, Path vanillaJar)
             throws java.io.IOException {
         Set<String> out = new TreeSet<>();
@@ -169,7 +168,7 @@ public final class ClassDiff {
                         out.add(n.substring(0, n.length() - ".class".length()));
                     }
                 } catch (RuntimeException ignored) {
-                    // 解不开的类不参与判断。
+
                 }
             }
         }

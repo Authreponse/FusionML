@@ -41,28 +41,27 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class FusionRuntime {
 
-    /** 加载选项。 */
     public static final class Options {
         public Path modsDir;
-        /** 是否客户端侧（影响 side=CLIENT/SERVER 的依赖判定）。 */
+
         public boolean client = true;
-        /** 是否真正执行实例化注册。基准测试里关掉它，可以只测"加载与索引"这一段。 */
+
         public boolean registerMods = true;
         /** 由加载器/游戏自身提供的依赖及其版本。 */
         public Map<String, String> provided = defaultProvided();
         /** 工作线程数；0 表示按 CPU 拓扑自动决定。 */
         public int workers;
-        /** 是否建立类索引（基准测试可以用它单独度量索引阶段）。 */
+
         public boolean buildIndex = true;
-        /** 是否在加载后对所有注入目标做一次"加载即校验"的自检。 */
+
         public boolean verifyInjections = true;
-        /** 直接传入一个早期窗口实例（编程方式自定义）。为 null 时按 id/SPI 自动选择。 */
+
         public com.fusionml.earlywindow.EarlyWindow earlyWindow;
-        /** 早期窗口实现 id 或类全名；空表示自动选择。 */
+
         public String earlyWindowChoice = "";
-        /** 早期窗口外观配置；为 null 时从系统属性与配置文件装载。 */
+
         public com.fusionml.earlywindow.EarlyWindowConfig earlyWindowConfig;
-        /** 是否关闭早期窗口（服务器/基准测试里通常关掉）。 */
+
         public boolean earlyWindowEnabled = true;
         /** 是否解析外层模组包内嵌的嵌套 jar（Fabric API 等依赖它）。 */
         public boolean nestedJars = true;
@@ -115,7 +114,6 @@ public final class FusionRuntime {
         }
     }
 
-    /** 一次完整加载会话的产物。 */
     public static final class Session implements AutoCloseable {
         public final CpuTopology.Info cpu;
         public final FusionPool pool;
@@ -165,7 +163,6 @@ public final class FusionRuntime {
             this.earlyWindow = earlyWindow;
         }
 
-        /** 面向玩家的可读报告。 */
         public String report() {
             StringBuilder sb = new StringBuilder(2048);
             sb.append("======== FusionML 加载报告 ========").append(System.lineSeparator());
@@ -257,7 +254,7 @@ public final class FusionRuntime {
 
     public static Session load(Options options) throws IOException {
         StageProfiler profiler = new StageProfiler();
-        // 早期窗口：在整个加载过程中给玩家可见的进度与状态。
+
         com.fusionml.earlywindow.EarlyWindowConfig ewConfig = options.earlyWindowConfig;
         if (ewConfig == null) {
             ewConfig = com.fusionml.earlywindow.EarlyWindowConfig.load();
@@ -288,8 +285,6 @@ public final class FusionRuntime {
         FusionPool pool = FusionPool.create("fusion", workerCount);
         ew.log("并行度：" + workerCount + " 个工作线程（调用方同时参与计算）");
 
-        // 启动时自动补齐标准游戏目录结构：只在"确实是一个游戏目录"时才动手，
-        // 且只创建缺失的目录，绝不改动已有文件。
         com.fusionml.install.InstanceLayout.EnsureResult layout =
                 com.fusionml.install.InstanceLayout.ensureForModsDir(options.modsDir);
         if (!layout.createdDirs().isEmpty()) {
@@ -297,20 +292,18 @@ public final class FusionRuntime {
                     + "（位于 " + layout.gameDir().toAbsolutePath() + "）");
         }
 
-        // 2) 扫描目录
         ew.stage("扫描模组目录", 0.05);
         profiler.begin();
         List<Path> found = listJars(options.modsDir);
         // 先并行把大小取出来缓存住，再排序。
-        // 反面教材是 `sort(comparingLong(Files::size))` —— 那会在比较器里反复做系统调用，
-        // 文件数一多就变成 O(n log n) 次 IO，白白拖慢第一个阶段。
+
         final long[] sizes = new long[found.size()];
         pool.parallelFor(0, found.size(), 64, i -> sizes[i] = safeSize(found.get(i)));
         Integer[] order = new Integer[found.size()];
         for (int i = 0; i < order.length; i++) {
             order[i] = i;
         }
-        // 大包优先：让最长的那条任务尽早开始，缩短整体长尾（LPT 调度思想）。
+
         java.util.Arrays.sort(order, (a, b) -> Long.compare(sizes[b], sizes[a]));
         List<Path> jarPaths = new ArrayList<>(found.size());
         for (int i : order) {
@@ -335,7 +328,7 @@ public final class FusionRuntime {
                 warnings.add(p.getFileName() + "：无法作为 ZIP 打开（" + e.getMessage() + "）");
             }
         }
-        // 3.5) Jar-in-Jar：把外层包里内嵌的模组包解出来并一并纳入。
+
         //      不做这一步，Fabric API 这类"打包了几百个子模块"的模组会被判成缺依赖。
         //      提取结果按内容哈希缓存，因此父进程（构建启动计划时）已经解过的那份会直接命中。
         if (options.nestedJars) {
@@ -367,7 +360,7 @@ public final class FusionRuntime {
         final int outerJarCount = jarPaths.size() - countNested(jars, jarPaths);
         pool.parallelFor(0, jars.size(), 1, i -> {
             try {
-                // 外层包与嵌套包要区分开：冲突时优先级不同（见 ModMetadata.nested）。
+
                 metaResults[i] = MetadataReader.read(jars.get(i), i, i >= outerJarCount);
                 for (String w : metaResults[i].warnings()) {
                     warnings.add(w);
@@ -388,7 +381,6 @@ public final class FusionRuntime {
         ew.stage("解析依赖并排序", 0.45);
         ew.log("已识别 " + mods.size() + " 条模组元数据");
 
-        // 4) 依赖解析
         profiler.begin();
         ModGraph.Plan plan = ModGraph.compute(mods, options.client, options.provided);
         profiler.end("4 依赖解析与分层");
@@ -397,7 +389,6 @@ public final class FusionRuntime {
         }
         ew.stage("建立全量类索引", 0.50);
 
-        // 5) 类索引
         profiler.begin();
         ModClassIndex.Result index = ModClassIndex.build(jars, mods, pool, cpu);
         for (String w : index.warnings()) {
@@ -408,7 +399,6 @@ public final class FusionRuntime {
         ew.log("已索引 " + index.totalClasses() + " 个类，构成 " + plan.depth() + " 层加载顺序");
         ew.stage("收集注入规则", 0.88);
 
-        // 6) 注入规则
         profiler.begin();
         TransformPipeline pipeline = new TransformPipeline();
         List<String> mixinNotes = Collections.synchronizedList(new ArrayList<>());
@@ -422,7 +412,6 @@ public final class FusionRuntime {
         }
         ew.stage("执行三端原生注册", 0.90);
 
-        // 7) 分层注册
         ModClassLoader loader = new ModClassLoader(
                 FusionRuntime.class.getClassLoader(), jars, index.byName(), pipeline);
         List<String> registration = Collections.synchronizedList(new ArrayList<>());
@@ -433,7 +422,7 @@ public final class FusionRuntime {
                 // 同一层内没有相互依赖，可以放心并行；层间严格串行保证顺序语义。
                 pool.parallelFor(0, tier.size(), 1, i -> {
                     ModMetadata mod = tier.get(i);
-                    // 多端同包的模组，每一种端都要各跑一次自己那套原生注册流程。
+
                     java.util.List<ModFormat> formats = new ArrayList<>(2);
                     formats.add(mod.format());
                     formats.addAll(mod.alternativeFormats);
@@ -444,7 +433,7 @@ public final class FusionRuntime {
                             continue;
                         }
                         if (!adapter.expectsRegistration(mod)) {
-                            // 纯库模组：没有入口点是正常的，安静跳过，不产生告警。
+
                             continue;
                         }
                         try {
@@ -468,9 +457,6 @@ public final class FusionRuntime {
             profiler.end("7 三端原生注册");
         }
 
-        // 8) 注入自检：把每一个被注入的目标类真正加载并初始化一次。
-        //    这一步的价值很高：类初始化会强制 JVM 完成链接与字节码校验，
-        //    因此"改写后的类是否合法"不再依赖我们的自信，而是由 JVM 本体给出结论。
         if (options.verifyInjections && pipeline.hookRuleCount() > 0) {
             ew.stage("注入自检", 0.97);
             profiler.begin();
@@ -478,7 +464,7 @@ public final class FusionRuntime {
             int failed = 0;
             for (String target : pipeline.hookTargets()) {
                 if (!index.byName().containsKey(target)) {
-                    // 目标是游戏/其它前置里的类，当前环境不存在，属于正常情况。
+
                     continue;
                 }
                 try {
@@ -523,7 +509,6 @@ public final class FusionRuntime {
                 jars.size(), totalBytes, new ArrayList<>(jarPaths), ew);
     }
 
-    /** 统计 jar 列表里有多少个是嵌套包（用于区分外层与内层元数据）。 */
     private static int countNested(List<FastZip> jars, List<Path> paths) {
         // jarPaths 的后半段是嵌套包：它们都在嵌套缓存目录下。
         int nested = 0;
@@ -545,7 +530,6 @@ public final class FusionRuntime {
         return m;
     }
 
-    /** 列出目录下的模组包（.jar / .zip），并跳过明显的禁用文件与临时文件。 */
     public static List<Path> listJars(Path dir) throws IOException {
         List<Path> out = new ArrayList<>(64);
         if (dir == null || !Files.isDirectory(dir)) {
@@ -600,12 +584,6 @@ public final class FusionRuntime {
         return out;
     }
 
-    /**
-     * 把新产生的提示滚进早期窗口。
-     *
-     * <p>用"已投递下标"做增量：这样窗口里出现的始终是最新的几条，
-     * 而且几百条同质提示不会把窗口刷爆。
-     */
     private static void flushWarnings(com.fusionml.earlywindow.EarlyWindow ew, List<String> warnings,
                                       java.util.concurrent.atomic.AtomicInteger cursor) {
         int size;
@@ -627,7 +605,6 @@ public final class FusionRuntime {
         cursor.set(to);
     }
 
-    /** 依赖的展示辅助（给界面用）。 */
     public static String describe(Dependency d) {
         return d.toString();
     }

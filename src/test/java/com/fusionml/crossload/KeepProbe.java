@@ -41,7 +41,6 @@ public final class KeepProbe {
         String mcKey = PatchedBase.mcKeyOf(versionId);
         Path patchedJar = PatchedBase.locate(instance, "neoforge", mcKey);
 
-        // 用"模组全集"扫，和真机一致。
         List<Path> mods = new ArrayList<>();
         try (var s = Files.newDirectoryStream(instance.gameDir().resolve("mods"), "*.jar")) {
             for (Path p : s) {

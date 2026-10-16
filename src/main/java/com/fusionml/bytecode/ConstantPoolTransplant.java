@@ -72,7 +72,7 @@ public final class ConstantPoolTransplant {
     static byte[] remapToNew(ClassFile source, ClassFile target, byte[] body, int[] map) {
         lastReason = null;
         try {
-            // 成员头：access_flags(2) name_index(2) desc_index(2) attributes_count(2)
+
             if (body.length < 8) {
                 return null;
             }
@@ -83,14 +83,9 @@ public final class ConstantPoolTransplant {
             }
             int attrCount = u2(body, 6);
 
-            // 先把属性区**建好**，再回头写属性数。
-            //
             // 为什么不能先写 attrCount：我们会**丢弃**一些属性（类型注解、调试信息等），
             // 丢弃之后属性数必须跟着减。踩过一次：属性头写 0 长度但仍然计数，
-            // 于是 ASM 去读 `RuntimeVisibleTypeAnnotations` 的 `num_annotations`
-            // 时读越界，报
-            //   IllegalArgumentException at ClassReader.readTypeAnnotationTarget
-            // 而 JVM 自己的 defineClass 却能通过 —— 又是一次"JVM 认、ASM 不认"。
+
             ByteArrayOutputStream attrs = new ByteArrayOutputStream(body.length);
             int kept = 0;
 
@@ -124,11 +119,7 @@ public final class ConstantPoolTransplant {
                     }
                     return null;
                 }
-                // **空数组 = 丢弃这个属性**，不写进结果，也不计数。
-                //
-                // 区分"丢弃"与"写一个长度为 0 的属性"很重要：后者对
-                // `RuntimeVisibleTypeAnnotations` 这类属性是非法的
-                //（ASM 会去读它的 num_annotations 而越界）。
+
                 if (newData.length > 0) {
                     attrs.write((map[attrName] >>> 8) & 0xFF);
                     attrs.write(map[attrName] & 0xFF);
@@ -138,7 +129,7 @@ public final class ConstantPoolTransplant {
                 }
                 p = dataEnd;
             }
-            // 现在才写成员头（属性数已经算准）。
+
             ByteArrayOutputStream out = new ByteArrayOutputStream(body.length);
             out.write(body, 0, 2);
             out.write((map[nameIdx] >>> 8) & 0xFF);
@@ -155,11 +146,6 @@ public final class ConstantPoolTransplant {
         }
     }
 
-    /**
-     * Code 属性：max_stack(2) max_locals(2) code_length(4) code[] 异常表[] 属性[]。
-     *
-     * <p>返回新的 Code 数据（尾部调试属性被丢弃，所以通常比原来短）。
-     */
     private static byte[] remapCode(ClassFile source, ClassFile target, byte[] b,
                                     int start, int end, int[] map) {
         if (start + 8 > end) {
@@ -176,7 +162,7 @@ public final class ConstantPoolTransplant {
         if (!remapInstructions(source, target, code, 0, code.length, map)) {
             return null;
         }
-        // 异常表：每项 8 字节，catch_type 是常量池索引（0 表示 any）。
+
         int p = codeEnd;
         if (p + 2 > end) {
             return null;
@@ -199,7 +185,7 @@ public final class ConstantPoolTransplant {
                 exTable[off + 1] = (byte) nn;
             }
         }
-        // 组装：max_stack/max_locals 原样 + 新 code + 新异常表 + 保留下来的子属性。
+
         ByteArrayOutputStream attrs = new ByteArrayOutputStream(64);
         int kept = 0;
         if (p + 2 <= end) {
@@ -219,11 +205,10 @@ public final class ConstantPoolTransplant {
                 int subEnd = (int) subEndL;
                 String sub = source.utf8(subName);
                 // StackMapTable 特殊对待：它**不能丢**。
-                //
-                // 丢掉调试属性（LineNumberTable 之类）是无害的，但丢掉 StackMapTable
+
                 // 会让带分支的方法在类校验期直接失败：
                 //   VerifyError: Expecting a stackmap frame at branch target 14
-                //     Location: ...getRelocability(...) @7: ifeq
+
                 // 原因：类版本 50+ 之后，**有分支就必须有帧**，不能靠隐式推导补出来。
                 // 所以改写不了它就放弃整个方法的搬运（保守），而不是留一个坏方法。
                 if ("StackMapTable".equals(sub)) {
@@ -246,9 +231,7 @@ public final class ConstantPoolTransplant {
                     continue;
                 }
                 byte[] newSub = remapCodeSubAttr(source, target, b, subStart, subEnd, sub, map);
-                // 同样：空数组 = 丢弃（不写、不计数）。
-                // 对 Code 的子属性尤其重要：写一个长度为 0 的
-                // `RuntimeVisibleTypeAnnotations` 会让 ASM 读越界。
+
                 if (newSub != null && newSub.length > 0) {
                     if (!ensure(source, target, subName, map)) {
                         return null;
@@ -265,7 +248,7 @@ public final class ConstantPoolTransplant {
         byte[] attrBytes = attrs.toByteArray();
         ByteArrayOutputStream out = new ByteArrayOutputStream(
                 8 + code.length + exTable.length + attrBytes.length + 2);
-        out.write(b, start, 4);                       // max_stack, max_locals
+        out.write(b, start, 4);                       
         writeU4(out, code.length);
         out.write(code, 0, code.length);
         out.write((exCount >>> 8) & 0xFF);
@@ -304,7 +287,7 @@ public final class ConstantPoolTransplant {
             return null;
         }
         switch (name) {
-            // 调试信息：丢弃（不影响校验，也不影响 ASM 重写）
+
             case "LineNumberTable":
             case "LocalVariableTable":
             case "LocalVariableTypeTable":
@@ -312,31 +295,12 @@ public final class ConstantPoolTransplant {
             case "StackMapTable":
                 return remapStackMapTable(source, target, b, start, end, map);
             default:
-                // 其他（RuntimeVisibleTypeAnnotations 等）里也有索引，
+
                 // 但结构更复杂；放弃整次搬运比猜错更安全。
                 return null;
         }
     }
 
-    /**
-     * StackMapTable：逐帧重写其中的"对象类型"常量池索引。
-     *
-     * <p>帧格式（JVMS 4.7.4）：
-     * <pre>
-     *   number_of_entries u2
-     *   每帧：frame_type u1
-     *     0-63    same_frame
-     *     64-127  same_locals_1_stack_item_frame → 1 个 verification_type_info
-     *     247     same_locals_1_stack_item_frame_extended → offset_delta u2 + 1 个 vti
-     *     248-250 chop_frame → offset_delta u2
-     *     251     same_frame_extended → offset_delta u2
-     *     252-254 append_frame → offset_delta u2 + (frame_type-251) 个 vti
-     *     255     full_frame → offset_delta u2 + locals u2 + locals 个 vti + stack u2 + stack 个 vti
-     *   vti：tag u1；tag=7 时跟一个 u2 常量池索引（Object_variable_info）
-     * </pre>
-     *
-     * <p>我们只改了常量池，帧的**结构与偏移全部不变**，所以这里是纯"就地改索引"。
-     */
     private static byte[] remapStackMapTable(ClassFile source, ClassFile target, byte[] b,
                                              int start, int end, int[] map) {
         if (start + 2 > end) {
@@ -354,16 +318,16 @@ public final class ConstantPoolTransplant {
             int frameType = data[p] & 0xFF;
             p++;
             if (frameType <= 63) {
-                // same_frame
+
             } else if (frameType <= 127) {
-                // same_locals_1_stack_item_frame
+
                 Integer adv = remapVti(source, target, data, p, map);
                 if (adv == null) {
                     return null;
                 }
                 p += adv;
             } else if (frameType <= 246) {
-                return null;                        // 保留区间：按规范不该出现
+                return null;                        
             } else if (frameType == 247) {
                 if (p + 2 > data.length) {
                     return null;
@@ -378,17 +342,17 @@ public final class ConstantPoolTransplant {
                 if (p + 2 > data.length) {
                     return null;
                 }
-                p += 2;                             // chop_frame
+                p += 2;                             
             } else if (frameType == 251) {
                 if (p + 2 > data.length) {
                     return null;
                 }
-                p += 2;                             // same_frame_extended
+                p += 2;                             
             } else if (frameType <= 254) {
                 if (p + 2 > data.length) {
                     return null;
                 }
-                p += 2;                             // offset_delta
+                p += 2;                             
                 int locals = frameType - 251;
                 for (int k = 0; k < locals; k++) {
                     Integer adv = remapVti(source, target, data, p, map);
@@ -397,11 +361,11 @@ public final class ConstantPoolTransplant {
                     }
                     p += adv;
                 }
-            } else {                                // 255 full_frame
+            } else {                                
                 if (p + 2 > data.length) {
                     return null;
                 }
-                p += 2;                             // offset_delta
+                p += 2;                             
                 if (p + 2 > data.length) {
                     return null;
                 }
@@ -429,7 +393,7 @@ public final class ConstantPoolTransplant {
             }
         }
         if (p != data.length) {
-            return null;                            // 长度对不上：结构判断有误，放弃
+            return null;                            
         }
         return data;
     }
@@ -445,26 +409,25 @@ public final class ConstantPoolTransplant {
         }
         int tag = data[p] & 0xFF;
         switch (tag) {
-            case 0:      // Top
-            case 1:      // Integer
-            case 2:      // Float
-            case 3:      // Double
-            case 4:      // Long
-            case 5:      // Null
-            case 6:      // UninitializedThis
+            case 0:      
+            case 1:      
+            case 2:      
+            case 3:      
+            case 4:      
+            case 5:      
+            case 6:      
                 return 1;
-            case 7: {    // Object：跟一个 u2 常量池索引
+            case 7: {    
                 if (p + 3 > data.length) {
                     return null;
                 }
                 int idx = u2(data, p + 1);
                 // 这里必须**主动导入**，而不是"没映射过就放弃"。
-                //
+
                 // 踩过一次：StackMapTable 里的类型不一定出现在方法体的指令操作数里
-                // （例如被擦除的泛型、只在帧里出现的类），所以 map 里可能还没有它。
-                // 原来写成 "map[idx] <= 0 → 放弃整次搬运"，于是
+
                 //   AttachmentHolder.getData 搬不进来（原因：StackMapTable 无法改写）
-                // 桥接直接卡住。改成主动 ensure 之后就通了。
+
                 if (!ensure(source, target, idx, map)) {
                     lastReason = "StackMapTable 的 Object 项 " + idx + " 无法导入";
                     return null;
@@ -484,11 +447,6 @@ public final class ConstantPoolTransplant {
         }
     }
 
-    /**
-     * 保守的指令扫描：按 JVM 指令表逐条推进，只改写"确定是常量池索引"的操作数。
-     *
-     * <p>遇到任何不支持的指令直接放弃（返回 false）。
-     */
     private static boolean remapInstructions(ClassFile source, ClassFile target, byte[] b,
                                              int start, int end, int[] map) {
         return remapInstructions(source, target, b, start, end, map, null);
@@ -549,7 +507,7 @@ public final class ConstantPoolTransplant {
     private static Integer remapSpecial(ClassFile source, ClassFile target, byte[] b, int p,
                                         int op, int end, int[] map) {
         switch (op) {
-            case 0x12: {                            // ldc（单字节索引）
+            case 0x12: {                            
                 if (p + 2 > end) {
                     return null;
                 }
@@ -559,9 +517,7 @@ public final class ConstantPoolTransplant {
                 }
                 int nn = map[idx];
                 if (nn > 255) {
-                    // 超出 ldc 能表示的范围，需要升格成 ldc_w。
-                    //
-                    // 升格本身只多一个字节，但那会**移动后面所有指令的偏移**，
+
                     // 从而让 StackMapTable、异常表、跳转偏移全部失效 —— 属于"改一处、崩一片"。
                     // 所以这里先记清楚原因就放弃；真需要支持时，
                     // 应当在搬运前先做一次"预留常量池槽位"的预处理，而不是在中途改指令长度。
@@ -571,14 +527,14 @@ public final class ConstantPoolTransplant {
                 b[p + 1] = (byte) nn;
                 return 2;
             }
-            case 0x13:                              // ldc_w
-            case 0x14:                              // ldc2_w（long/double）
-            case 0xB2: case 0xB3: case 0xB4: case 0xB5:   // get/put static/field
-            case 0xB6: case 0xB7: case 0xB8:              // invokevirtual/special/static
-            case 0xBB:                              // new
-            case 0xBD:                              // anewarray
-            case 0xC0:                              // checkcast
-            case 0xC1: {                            // instanceof
+            case 0x13:                              
+            case 0x14:                              
+            case 0xB2: case 0xB3: case 0xB4: case 0xB5:   
+            case 0xB6: case 0xB7: case 0xB8:              
+            case 0xBB:                              
+            case 0xBD:                              
+            case 0xC0:                              
+            case 0xC1: {                            
                 if (p + 3 > end) {
                     return null;
                 }
@@ -591,7 +547,7 @@ public final class ConstantPoolTransplant {
                 b[p + 2] = (byte) nn;
                 return 3;
             }
-            case 0xB9: {                            // invokeinterface
+            case 0xB9: {                            
                 if (p + 5 > end) {
                     return null;
                 }
@@ -604,7 +560,7 @@ public final class ConstantPoolTransplant {
                 b[p + 2] = (byte) nn;
                 return 5;
             }
-            case 0xBA: {                            // invokedynamic
+            case 0xBA: {                            
                 if (p + 5 > end) {
                     return null;
                 }
@@ -617,7 +573,7 @@ public final class ConstantPoolTransplant {
                 b[p + 2] = (byte) nn;
                 return 5;
             }
-            case 0xC5: {                            // multianewarray
+            case 0xC5: {                            
                 if (p + 4 > end) {
                     return null;
                 }
@@ -630,14 +586,14 @@ public final class ConstantPoolTransplant {
                 b[p + 2] = (byte) nn;
                 return 4;
             }
-            case 0xC4: {                            // wide
+            case 0xC4: {                            
                 if (p + 2 > end) {
                     return null;
                 }
                 int sub = b[p + 1] & 0xFF;
-                return sub == 0x84 ? 6 : 4;         // wide iinc 是 6 字节
+                return sub == 0x84 ? 6 : 4;         
             }
-            case 0xAA: {                            // tableswitch
+            case 0xAA: {                            
                 int q = align4(p + 1);
                 if (q + 12 > end) {
                     return null;
@@ -650,7 +606,7 @@ public final class ConstantPoolTransplant {
                 }
                 return (int) (q + 12 + 4L * size - p);
             }
-            case 0xAB: {                            // lookupswitch
+            case 0xAB: {                            
                 int q = align4(p + 1);
                 if (q + 8 > end) {
                     return null;
@@ -670,13 +626,6 @@ public final class ConstantPoolTransplant {
         return (x + 3) & ~3;
     }
 
-    /**
-     * 处理成员上的其他属性。
-     *
-     * <p>只支持结构最简单、也最常见的 {@code Exceptions}；其余（{@code Signature}、
-     * 注解、{@code MethodParameters}…）里常量池索引的位置各不相同，逐个猜的风险很高，
-     * 一律返回 {@code null} 让调用方放弃搬运。这与"宁可少拼、不产坏类"的立场一致。
-     */
     private static byte[] remapSimpleAttr(ClassFile source, ClassFile target, byte[] b,
                                           int start, int end, String name, int[] map) {
         if (name == null) {
@@ -703,24 +652,19 @@ public final class ConstantPoolTransplant {
             }
             return data;
         }
-        // 特例：没有常量池索引的属性可以原样搬。
+
         if ("Synthetic".equals(name) || "Deprecated".equals(name)) {
             return java.util.Arrays.copyOfRange(b, start, end);
         }
-        // 类型注解类属性（RuntimeVisibleTypeAnnotations 等）：**丢弃**，不放弃搬运。
-        //
-        // 它们是编译期/工具的元信息（对泛型参数位置的注解），运行时行为不依赖它们。
-        // 而它们的结构（target_type + 各种 target_info + type_path + 注解本身）比较复杂，
+
         // 逐个改对成本高、改错就是坏类。实测：AttachmentHolder 的 attachments 字段
-        // 因此搬不进来，桥接直接卡住 —— 丢掉它之后立刻通过。
-        //
+
         // 注意只对**成员**上的这几个属性这么做；Code 子属性里的同名前缀属性另有处理。
         if ("RuntimeVisibleTypeAnnotations".equals(name)
                 || "RuntimeInvisibleTypeAnnotations".equals(name)
-                // 普通注解（@Nullable / @Override 之类）与参数注解、方法参数名：
-                // 同样可以丢弃 —— 它们只影响反射与工具链，不影响运行期行为与签名。
+
                 // 实测：AttachmentHolder.setData 带 @Nullable（RuntimeInvisibleAnnotations），
-                // 桥接在这里卡住；丢掉之后继续推进。
+
                 || "RuntimeVisibleAnnotations".equals(name)
                 || "RuntimeInvisibleAnnotations".equals(name)
                 || "RuntimeVisibleParameterAnnotations".equals(name)
@@ -729,10 +673,10 @@ public final class ConstantPoolTransplant {
                 || "MethodParameters".equals(name)) {
             return new byte[0];
         }
-        // 以下属性里**含常量池索引**，但结构各不相同。逐个支持容易读错，
+
         // 而读错的后果是 VerifyError: Illegal type at constant pool entry N
         // （实测：AttributeModifiersPredicate 的 record 组件表）。
-        // 所以这里显式拒绝，让调用方放弃整次搬运 —— 宁可少拼一个方法。
+
         if ("Record".equals(name) || "InnerClasses".equals(name)
                 || "EnclosingMethod".equals(name) || "NestHost".equals(name)
                 || "NestMembers".equals(name) || "PermittedSubclasses".equals(name)
@@ -748,9 +692,9 @@ public final class ConstantPoolTransplant {
             }
             return null;
         }
-        // Signature：结构就是"一个 u2，指向一个 UTF8"（泛型签名）。
+
         // 实测它是"方法级拼接"在 RegistryDataLoader 上唯一挡住路的属性，
-        // 而且结构简单到不会读错，所以支持它。
+
         if ("Signature".equals(name)) {
             if (start + 2 > end) {
                 return null;
@@ -834,7 +778,7 @@ public final class ConstantPoolTransplant {
                 q += 8;
             }
             // Code 的子属性：StackMapTable 的 Object_variable_info 也必须是 Class。
-            // 这一项之前没查，而它是"拼接方法带 StackMapTable"时最容易出错的地方。
+
             if (q + 2 > bytes.length) {
                 return "Code 属性区缺失";
             }
@@ -865,7 +809,7 @@ public final class ConstantPoolTransplant {
             // 有分支却没有 StackMapTable → 类版本 50+ 下必然 VerifyError。
             // 这一条正是"离线早发现"的关键：它对应的真机错误是
             //   VerifyError: Expecting a stackmap frame at branch target N
-            // 出现在启动期，离合并期很远。
+
             if (!hasStackMap && codeHasBranch(bytes, codeStart, codeEnd)) {
                 return "方法含分支但缺少 StackMapTable（类版本 50+ 必然校验失败）";
             }
@@ -875,12 +819,11 @@ public final class ConstantPoolTransplant {
         }
     }
 
-    /** 这段字节码里有没有"跳转/switch"这类需要栈帧的分支指令。 */
     private static boolean codeHasBranch(byte[] b, int start, int end) {
         int p = start;
         while (p < end) {
             int op = b[p] & 0xFF;
-            // ifeq..if_acmpne、goto、jsr、ifnull、ifnonnull、tableswitch、lookupswitch
+
             if ((op >= 0x99 && op <= 0xA8) || op == 0xC6 || op == 0xC7
                     || op == 0xAA || op == 0xAB) {
                 return true;
@@ -902,7 +845,6 @@ public final class ConstantPoolTransplant {
         return false;
     }
 
-    /** 校验 StackMapTable 里的 Object_variable_info 是否都指向 Class 项。 */
     private static String verifyStackMap(ClassFile cf, byte[] b, int start, int end) {
         if (start + 2 > end) {
             return "StackMapTable 越界";
@@ -916,7 +858,7 @@ public final class ConstantPoolTransplant {
             int ft = b[p] & 0xFF;
             p++;
             if (ft <= 63) {
-                // same_frame
+
             } else if (ft <= 127) {
                 Integer adv = vtiLength(cf, b, p, end);
                 if (adv == null) {
@@ -974,7 +916,6 @@ public final class ConstantPoolTransplant {
         return p == end ? null : "StackMapTable 长度不符";
     }
 
-    /** 一个 verification_type_info 的长度；Object 项会顺带校验它指向 Class。 */
     private static Integer vtiLength(ClassFile cf, byte[] b, int p, int end) {
         if (p >= end) {
             return null;
@@ -990,7 +931,7 @@ public final class ConstantPoolTransplant {
                 int idx = u2(b, p + 1);
                 ClassFile.Cp c = cf.cp(idx);
                 if (c == null) {
-                    return -1;                  // 用一个特殊值表示"不合法"，由调用方识别
+                    return -1;                  
                 }
                 if (c.tag != 7) {
                     throw new IllegalStateException("StackMapTable 的 Object 项索引 " + idx
@@ -1043,7 +984,6 @@ public final class ConstantPoolTransplant {
         }
     }
 
-    /** 供桥接预扫使用：把源常量池第 {@code idx} 项导入目标类。 */
     public static boolean ensurePublic(ClassFile source, ClassFile target, int idx, int[] map) {
         return ensure(source, target, idx, map);
     }
@@ -1083,12 +1023,11 @@ public final class ConstantPoolTransplant {
         return n;
     }
 
-    /** 只算长度、不改写（校验用）。 */
     private static Integer instructionLength(byte[] b, int p, int op, int end) {
         switch (op) {
             case 0x12: return 2;
             case 0x13: return 3;
-            case 0x14: return 3;                        // ldc2_w
+            case 0x14: return 3;                        
             case 0xB9: case 0xBA: return 5;
             case 0xBB: case 0xBD: case 0xC0: case 0xC1: return 3;
             case 0xC5: return 4;
@@ -1124,14 +1063,13 @@ public final class ConstantPoolTransplant {
         }
     }
 
-    /** 检查一条带常量池索引的指令，索引是否存在、类型是否用对。 */
     private static String checkIndex(byte[] b, ClassFile cf, int p, int op, int end) {
         int idx;
         int expect;
         switch (op) {
             case 0x12: idx = b[p + 1] & 0xFF; expect = -2; break;
             case 0x13: idx = u2(b, p + 1); expect = -2; break;
-            case 0x14: idx = u2(b, p + 1); expect = -2; break;   // ldc2_w
+            case 0x14: idx = u2(b, p + 1); expect = -2; break;   
             case 0xB2: case 0xB3: case 0xB4: case 0xB5:
                 idx = u2(b, p + 1); expect = 9; break;
             case 0xB6: case 0xB7: case 0xB8:
@@ -1147,9 +1085,9 @@ public final class ConstantPoolTransplant {
             return "操作码 0x" + Integer.toHexString(op) + " 的索引 " + idx + " 不存在";
         }
         if (expect == -2) {
-            return null;                      // ldc 接受多种可加载常量
+            return null;                      
         }
-        // invokespecial/invokestatic 允许指向接口方法（Java 8+）
+
         if (c.tag != expect && !(expect == 10 && c.tag == 11)) {
             return "操作码 0x" + Integer.toHexString(op) + " 的索引 " + idx
                     + " 是 tag" + c.tag + "，期望 tag" + expect + "（内容 " + c + "）";
@@ -1209,82 +1147,73 @@ public final class ConstantPoolTransplant {
                 | ((b[p + 2] & 0xFF) << 8) | (b[p + 3] & 0xFF);
     }
 
-    /**
-     * JVM 指令长度表。
-     *
-     * <p>{@code >0}：定长指令的字节数（含操作码）；{@code 0}：需单独判断；
-     * {@code -1}：不支持（保留/未定义操作码），遇到即放弃搬运。
-     */
     private static final int[] OP_LENGTH = new int[256];
 
     static {
-        // 默认：绝大多数指令没有操作数 → 1 字节
+
         java.util.Arrays.fill(OP_LENGTH, 1);
-        // 保留/未定义：不支持
+
         for (int i : new int[] {0xCA, 0xFE, 0xFF, 0xCB, 0xCC, 0xCD, 0xCE, 0xCF}) {
             OP_LENGTH[i] = -1;
         }
-        // 操作数不足一字节时会被 reload/verify 拒绝，这里明确成 2 字节。
-        for (int i = 0x10; i <= 0x10; i++) {        // bipush
+
+        for (int i = 0x10; i <= 0x10; i++) {        
             OP_LENGTH[i] = 2;
         }
-        for (int i = 0x15; i <= 0x19; i++) {        // iload..aload
+        for (int i = 0x15; i <= 0x19; i++) {        
             OP_LENGTH[i] = 2;
         }
-        for (int i = 0x36; i <= 0x3A; i++) {        // istore..astore
+        for (int i = 0x36; i <= 0x3A; i++) {        
             OP_LENGTH[i] = 2;
         }
-        OP_LENGTH[0x84] = 3;                        // iinc
-        OP_LENGTH[0xA9] = 2;                        // ret
-        OP_LENGTH[0xBC] = 2;                        // newarray
-        OP_LENGTH[0x11] = 3;                        // sipush
+        OP_LENGTH[0x84] = 3;                        
+        OP_LENGTH[0xA9] = 2;                        
+        OP_LENGTH[0xBC] = 2;                        
+        OP_LENGTH[0x11] = 3;                        
         // ldc2_w 虽然长度固定 3，但操作数是**常量池索引**（long/double），必须改写。
         // 和 0xB2-B8 同一类错误：设成定长 → 扫描直接跳过 → 索引原封不动，
         // 于是拼出来的类引用了源类的索引。实测症状：
         //   VerifyError: Illegal type at constant pool entry 115
-        //     Location: net/minecraft/nbt/NbtAccounter.readUTF(...) @1: ldc2_w
-        OP_LENGTH[0x14] = 0;                        // ldc2_w
+
+        OP_LENGTH[0x14] = 0;                        
         // 下面这些指令虽然长度固定，但操作数是**常量池索引**，必须走 remapSpecial 去改写。
-        // 一开始把它们设成定长 3，于是扫描时"直接跳过"，索引原封不动 ——
+
         // 表现就是拼出来的类里索引还是源类的值（实测 1033/1036 越界），
         // 而 JVM 的 defineClass 与 javap 又都能通过，只有宿主平台的 ASM 会崩。
-        OP_LENGTH[0xB2] = 0;                        // getstatic
-        OP_LENGTH[0xB3] = 0;                        // putstatic
-        OP_LENGTH[0xB4] = 0;                        // getfield
-        OP_LENGTH[0xB5] = 0;                        // putfield
-        OP_LENGTH[0xB6] = 0;                        // invokevirtual
-        OP_LENGTH[0xB7] = 0;                        // invokespecial
-        OP_LENGTH[0xB8] = 0;                        // invokestatic
-        OP_LENGTH[0xC6] = 3;                        // ifnull（2 字节跳转偏移 → 总长 3）
-        OP_LENGTH[0xC7] = 3;                        // ifnonnull
-        // 所有条件跳转都是"操作码 + 2 字节分支偏移" = 3 字节。
-        // 这一片最初漏了（默认成 1 字节），后果很严重：带 if* 的方法**一进到这条就错位**，
-        // 后面的字节被当成操作码，于是：
+        OP_LENGTH[0xB2] = 0;                        
+        OP_LENGTH[0xB3] = 0;                        
+        OP_LENGTH[0xB4] = 0;                        
+        OP_LENGTH[0xB5] = 0;                        
+        OP_LENGTH[0xB6] = 0;                        
+        OP_LENGTH[0xB7] = 0;                        
+        OP_LENGTH[0xB8] = 0;                        
+        OP_LENGTH[0xC6] = 3;                        
+        OP_LENGTH[0xC7] = 3;                        
+
         //   · 真机上 checkcast 被跳过、索引没改写 → VerifyError: Illegal type at CP entry 188；
-        //   · 自检里报出 11184 / 47617 这种大得离谱的"越界"与"保留操作码 0xff"。
-        // 一处长度错，症状却出现在很远的地方。
-        for (int i = 0x99; i <= 0xA6; i++) {        // ifeq..if_acmpne
+
+        for (int i = 0x99; i <= 0xA6; i++) {        
             OP_LENGTH[i] = 3;
         }
         OP_LENGTH[0xC6] = 3;
         OP_LENGTH[0xC7] = 3;
-        for (int i = 0xA7; i <= 0xA8; i++) {        // goto / jsr
+        for (int i = 0xA7; i <= 0xA8; i++) {        
             OP_LENGTH[i] = 3;
         }
-        OP_LENGTH[0xBB] = 0;                        // new
-        OP_LENGTH[0xBD] = 0;                        // anewarray
-        OP_LENGTH[0xC0] = 0;                        // checkcast
-        OP_LENGTH[0xC1] = 0;                        // instanceof
-        OP_LENGTH[0xC8] = 5;                        // goto_w
-        OP_LENGTH[0xC9] = 5;                        // jsr_w
-        // 需单独判断的
-        OP_LENGTH[0x12] = 0;                        // ldc
-        OP_LENGTH[0x13] = 0;                        // ldc_w
-        OP_LENGTH[0xB9] = 0;                        // invokeinterface
-        OP_LENGTH[0xBA] = 0;                        // invokedynamic
-        OP_LENGTH[0xC5] = 0;                        // multianewarray
-        OP_LENGTH[0xC4] = 0;                        // wide
-        OP_LENGTH[0xAA] = 0;                        // tableswitch
-        OP_LENGTH[0xAB] = 0;                        // lookupswitch
+        OP_LENGTH[0xBB] = 0;                        
+        OP_LENGTH[0xBD] = 0;                        
+        OP_LENGTH[0xC0] = 0;                        
+        OP_LENGTH[0xC1] = 0;                        
+        OP_LENGTH[0xC8] = 5;                        
+        OP_LENGTH[0xC9] = 5;                        
+
+        OP_LENGTH[0x12] = 0;                        
+        OP_LENGTH[0x13] = 0;                        
+        OP_LENGTH[0xB9] = 0;                        
+        OP_LENGTH[0xBA] = 0;                        
+        OP_LENGTH[0xC5] = 0;                        
+        OP_LENGTH[0xC4] = 0;                        
+        OP_LENGTH[0xAA] = 0;                        
+        OP_LENGTH[0xAB] = 0;                        
     }
 }

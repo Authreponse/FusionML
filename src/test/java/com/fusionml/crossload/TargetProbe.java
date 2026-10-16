@@ -36,7 +36,7 @@ public final class TargetProbe {
             }
         }
         System.out.println("模组包：" + jars.size() + " 个");
-        // 关键：用"全集"来扫 —— mods 目录只有 37 个，而游戏实际加载 151 个，
+
         // 差额在宿主平台的嵌套包缓存（.fabric/processedMods）里，肇事模组就在那儿。
         com.fusionml.mc.McInstance instance = com.fusionml.mc.McInstance.open(gameDir);
         List<Path> all = PatchedBase.expandModJars(instance, jars, System.out::println);
@@ -51,7 +51,7 @@ public final class TargetProbe {
                 + (bytes > 30000 ? "（超过 Windows 命令行上限，必须走文件通道）" : "（可走属性通道）"));
         String key = "net/neoforged/neoforge/registries/DeferredRegister";
         System.out.println("关键判据 " + key + " 在名单里=" + targets.contains(key));
-        // 把对方平台相关的目标单独列出来，便于核对。
+
         List<String> foreign = targets.stream()
                 .filter(t -> t.startsWith("net/neoforged/") || t.startsWith("net/minecraftforge/"))
                 .toList();
@@ -67,7 +67,6 @@ public final class TargetProbe {
         Instance2Shape(instance);
     }
 
-    /** 报出两个关键接口的形状，确认判据能做出正确区分。 */
     private static void Instance2Shape(com.fusionml.mc.McInstance instance) {
         System.setProperty("fusion.librariesDir",
                 instance.librariesDir().toAbsolutePath().toString());

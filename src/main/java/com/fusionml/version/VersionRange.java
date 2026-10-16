@@ -22,7 +22,6 @@ import java.util.Locale;
  */
 public final class VersionRange {
 
-    /** 单个区间。 */
     private record Interval(Version low, boolean lowInclusive, Version high, boolean highInclusive) {
     }
 
@@ -42,7 +41,6 @@ public final class VersionRange {
     private String exact;
     private boolean degraded;
 
-    /** 比较符约束：{@code >=1.0} 之类。 */
     private record Bound(boolean greater, boolean inclusive, Version version) {
     }
 
@@ -96,7 +94,7 @@ public final class VersionRange {
             String lo = parts.length > 0 ? parts[0].trim() : "";
             String hi = parts.length > 1 ? parts[1].trim() : "";
             if (parts.length == 1 && !lo.isEmpty()) {
-                // [1.0] 表示精确匹配
+
                 comparators.add(new Bound(true, true, Version.of(lo)));
                 comparators.add(new Bound(false, true, Version.of(lo)));
                 return;
@@ -136,7 +134,7 @@ public final class VersionRange {
                     Version low = Version.of(v);
                     Version high;
                     if (caret) {
-                        // ^1.2.3 → [1.2.3, 2.0.0)；^0.2.3 → [0.2.3, 0.3.0)；^0.0.3 → [0.0.3, 0.0.4)
+
                         if (major != 0) {
                             high = Version.of((major + 1) + ".0.0");
                         } else if (minor != 0) {
@@ -145,7 +143,7 @@ public final class VersionRange {
                             high = Version.of("0.0." + (patch + 1));
                         }
                     } else {
-                        // ~1.2.3 → [1.2.3, 1.3.0)；~1.2 → [1.2, 1.3)
+
                         high = Version.of(major + "." + (minor + 1) + ".0");
                     }
                     intervals.add(new Interval(low, true, high, false));
@@ -221,7 +219,7 @@ public final class VersionRange {
     /** 判断某个具体版本是否落在区间内。 */
     public boolean accepts(String version) {
         if (!alternatives.isEmpty()) {
-            // 并集：任一分支满足即可。
+
             for (VersionRange alt : alternatives) {
                 if (alt.accepts(version)) {
                     return true;

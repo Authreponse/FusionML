@@ -15,7 +15,6 @@ import java.util.List;
  */
 public final class ClassEmitter {
 
-    /** 一条注解：类型描述符 + 元素值（当前支持字符串与整数）。 */
     public record Anno(String desc, java.util.Map<String, Object> values) {
         public static Anno of(String desc) {
             return new Anno(desc, java.util.Map.of());
@@ -28,8 +27,8 @@ public final class ClassEmitter {
     private final List<byte[]> methods = new ArrayList<>(4);
     private final List<Anno> annotations = new ArrayList<>(1);
     private final List<byte[]> fields = new ArrayList<>(2);
-    private int version = 61;                       // Java 17
-    private int access = 0x0021;                    // ACC_PUBLIC | ACC_SUPER
+    private int version = 61;                       
+    private int access = 0x0021;                    
     private final ConstPool cp = new ConstPool();
 
     public ClassEmitter(String internalName, String superName) {
@@ -52,7 +51,6 @@ public final class ClassEmitter {
         return this;
     }
 
-    /** 加一个类级注解，例如 {@code Lcom/example/Mod;}。 */
     public ClassEmitter addAnnotation(String desc) {
         annotations.add(Anno.of(desc));
         return this;
@@ -71,62 +69,47 @@ public final class ClassEmitter {
         return this;
     }
 
-    // ---------------------------------------------------------------- 常量池入口
-    //
-    // 生成"运行期桥接类"时，方法体里除了压栈/返回，还需要引用字段与方法
-    // （例如"把构造器参数存进字段"、"读字段作为返回值"）。
-    // 这几个方法把常量池下标暴露出来，调用方自己拼字节码即可 ——
-    // 生成器本身不必知道桥接类长什么样，职责保持单一。
-
-    /** 字段引用常量（putfield/getfield 用）。 */
     public int constFieldref(String owner, String name, String desc) {
         return cp.fieldref(owner, name, desc);
     }
 
-    /** 方法引用常量（invokevirtual / invokespecial 用）。 */
     public int constMethodref(String owner, String name, String desc) {
         return cp.methodref(owner, name, desc);
     }
 
-    /** 类常量。 */
     public int constClass(String internalName) {
         return cp.classRef(internalName);
     }
 
-    /** 字符串常量（ldc / ldc_w 用）。 */
     public int constString(String value) {
         return cp.string(value);
     }
 
-    /** 默认构造器（调用 super()）。 */
     public ClassEmitter addDefaultConstructor() {
         int ref = cp.methodref(superName, "<init>", "()V");
         byte[] code = {
-                (byte) 0x2A,                        // aload_0
-                (byte) 0xB7, (byte) (ref >>> 8), (byte) ref,   // invokespecial <init>
-                (byte) 0xB1                         // return
+                (byte) 0x2A,                        
+                (byte) 0xB7, (byte) (ref >>> 8), (byte) ref,   
+                (byte) 0xB1                         
         };
         return addMethod("<init>", "()V", 0x0001, 1, 1, code);
     }
 
-    /** 静态 void 方法，方法体只有 return。 */
     public ClassEmitter addEmptyStaticMethod(String name, String desc) {
         return addMethod(name, desc, 0x0009, 0, Descriptors.paramSlots(desc),
                 new byte[] {(byte) 0xB1}, List.of());
     }
 
-    /** 静态 void 方法 + 方法级注解（用于生成钩子类）。 */
     public ClassEmitter addAnnotatedEmptyStaticMethod(String name, String desc, Anno... annos) {
         return addMethod(name, desc, 0x0009, 0, Descriptors.paramSlots(desc),
                 new byte[] {(byte) 0xB1}, List.of(annos));
     }
 
-    /** 静态方法，方法体是 {@code return <常量>}（返回 int/boolean/char 之类）。 */
     public ClassEmitter addConstantStaticMethod(String name, String desc, int value) {
         byte[] body;
         byte[] bodyWithConst;
         if (value >= -1 && value <= 5) {
-            // iconst_N（-1..5）
+
             int op = value == -1 ? 0x02 : 0x03 + value;
             bodyWithConst = new byte[] {(byte) op, (byte) 0xAC};
         } else if (value >= Byte.MIN_VALUE && value <= Byte.MAX_VALUE) {
@@ -134,8 +117,8 @@ public final class ClassEmitter {
         } else {
             int idx = cp.integer(value);
             bodyWithConst = new byte[] {
-                    (byte) 0x13, (byte) (idx >>> 8), (byte) idx,   // ldc_w
-                    (byte) 0xAC                                     // ireturn
+                    (byte) 0x13, (byte) (idx >>> 8), (byte) idx,   
+                    (byte) 0xAC                                     
             };
         }
         body = bodyWithConst;
@@ -187,8 +170,8 @@ public final class ClassEmitter {
         codeAttr.u2(codeName).u4(code.length + 12);
         codeAttr.u2(maxStack).u2(maxLocals);
         codeAttr.u4(code.length).raw(code, 0, code.length);
-        codeAttr.u2(0);                              // exception_table_length
-        codeAttr.u2(0);                              // attributes_count
+        codeAttr.u2(0);                              
+        codeAttr.u2(0);                              
         byte[] blob = codeAttr.toByteArray();
         byte[] annoAttr = encodeAnnotations(methodAnnotations);
         int attrCount = annoAttr == null ? 1 : 2;
@@ -201,7 +184,6 @@ public final class ClassEmitter {
         return this;
     }
 
-    /** 编码 RuntimeVisibleAnnotations 属性（含属性名索引与长度前缀）。返回 null 表示没有注解。 */
     private byte[] encodeAnnotations(List<Anno> list) {
         if (list == null || list.isEmpty()) {
             return null;
@@ -230,7 +212,7 @@ public final class ClassEmitter {
 
     public byte[] build() {
         // 关键顺序：先把这个类直接引用到的所有常量登记进池（常量池一旦序列化，计数就固定了），
-        // 再序列化池、再写主体。字段/方法在 add* 阶段就已经登记完毕。
+
         int thisIdx = cp.classRef(internalName);
         int superIdx = cp.classRef(superName);
         int[] ifaceIdx = new int[interfaces.size()];
@@ -266,7 +248,6 @@ public final class ClassEmitter {
         return o.toByteArray();
     }
 
-    /** 极简常量池：只支持生成器自己需要的那几种项，用 Map 去重。 */
     private static final class ConstPool {
         private final ByteOut poolBytes = new ByteOut(512);
         private final java.util.Map<String, Integer> index = new java.util.HashMap<>();

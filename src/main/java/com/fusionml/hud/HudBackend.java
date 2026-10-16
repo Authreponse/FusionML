@@ -20,15 +20,12 @@ public interface HudBackend {
 
     void strokeRect(int x, int y, int w, int h, int argb);
 
-    /** 圆角矩形填充；radius &lt;= 0 时退化为直角。 */
     void fillRoundRect(int x, int y, int w, int h, int radius, int argb);
 
     void line(int x1, int y1, int x2, int y2, int argb);
 
-    /** 填充多边形（折线图用）。 */
     void fillPolygon(int[] xs, int[] ys, int count, int argb);
 
-    /** 横向渐变填充（进度条、标题条等）。 */
     default void fillGradientRect(int x, int y, int w, int h, int argbLeft, int argbRight) {
         fillRect(x, y, w, h, argbLeft);
     }

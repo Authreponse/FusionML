@@ -17,7 +17,6 @@ import java.util.Map;
  */
 public final class MetadataReader {
 
-    /** 读取结果。 */
     public record Result(List<ModMetadata> mods, List<String> warnings) {
     }
 
@@ -74,7 +73,7 @@ public final class MetadataReader {
         }
         // MANIFEST 的 MixinConfigs 属性：Forge/NeoForge 生态里这才是主流的声明方式。
         // 实测证据：Iceberg-26.2-forge 的 mods.toml 里一条 [[mixins]] 都没有，
-        // 配置全写在这个属性里。只读 TOML 会漏掉一整批配置，
+
         // 现象是"模组在列表里、Mixin 却完全没生效"，很难往"元数据没读全"上想。
         String manifestConfigs = manifestAttrs.get("mixinconfigs");
         if (manifestConfigs != null && !manifestConfigs.isBlank()) {
@@ -114,8 +113,7 @@ public final class MetadataReader {
             return Map.of();
         }
         String text = new String(bytes, StandardCharsets.UTF_8);
-        // 键统一小写：MANIFEST 的键名大小写在实际产物里并不统一，
-        // 而按规范比较是大小写不敏感的。
+
         Map<String, String> out = new java.util.LinkedHashMap<>(8);
         String current = null;
         StringBuilder value = new StringBuilder();
@@ -129,7 +127,7 @@ public final class MetadataReader {
                 continue;
             }
             if (rawLine.charAt(0) == ' ') {
-                // 续行：规范规定每行不超过 72 字节，超出部分以空格开头续写。
+
                 if (current != null) {
                     value.append(rawLine, 1, rawLine.length());
                 }

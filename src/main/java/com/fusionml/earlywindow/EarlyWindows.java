@@ -24,7 +24,6 @@ import java.util.Set;
  */
 public final class EarlyWindows {
 
-    /** 指定实现时要读的系统属性名。 */
     public static final String CHOICE_PROPERTY = "fusion.earlywindow";
 
     private EarlyWindows() {
@@ -67,16 +66,14 @@ public final class EarlyWindows {
         }
     };
 
-    /** 关闭早期窗口（什么都不做）。 */
     public static EarlyWindow none() {
         return NOOP;
     }
 
-    /** 列出所有可用实现（内置 + 第三方 SPI），用于帮助信息与诊断。 */
     public static List<EarlyWindowProvider> providers() {
         Set<String> seen = new LinkedHashSet<>();
         List<EarlyWindowProvider> out = new ArrayList<>();
-        // 先加载第三方：按约定它们应该能通过优先级压过内置实现。
+
         for (EarlyWindowProvider p : ServiceLoader.load(EarlyWindowProvider.class)) {
             if (seen.add(p.id())) {
                 out.add(p);
@@ -144,7 +141,7 @@ public final class EarlyWindows {
                 return null;
             }
         }
-        // 也允许直接写类全名：实现 EarlyWindowProvider 或 EarlyWindow 都行。
+
         try {
             Class<?> c = Class.forName(choice, true, EarlyWindows.class.getClassLoader());
             if (EarlyWindowProvider.class.isAssignableFrom(c)) {
@@ -165,7 +162,7 @@ public final class EarlyWindows {
             }
             System.out.println("类 " + choice + " 既不是 EarlyWindow 也不是 EarlyWindowProvider");
         } catch (Throwable t) {
-            // 交给上层回退
+
         }
         return null;
     }
@@ -181,7 +178,6 @@ public final class EarlyWindows {
         return sb.toString();
     }
 
-    /** 生成帮助文本。 */
     public static String describeProviders() {
         StringBuilder sb = new StringBuilder();
         sb.append("可用早期窗口实现（按优先级）：").append(System.lineSeparator());

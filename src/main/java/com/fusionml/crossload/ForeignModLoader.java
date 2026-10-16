@@ -43,7 +43,6 @@ import java.util.zip.ZipFile;
  */
 public final class ForeignModLoader {
 
-    /** 某一端的符号表：加一端只需要再加一组名字，驱动逻辑是同一份。 */
     private record Platform(String id, String display, String modAnnoDesc, String modAnnoClass,
                             String subscriberDesc, String modContainer, String iEventBus,
                             String busBuilder, String modLoadingContext, String iModInfo,
@@ -86,7 +85,6 @@ public final class ForeignModLoader {
         }
     }
 
-    /** 一个被驱动起来的跨端模组。 */
     public record Loaded(String modId, String name, String version, String entryClass,
                          Object container, Object bus, String error) {
         public boolean ok() {
@@ -94,7 +92,6 @@ public final class ForeignModLoader {
         }
     }
 
-    /** 驱动结果。 */
     public record Result(String platform, List<Loaded> mods, List<String> notes,
                          boolean runtimeUsable) {
         public long okCount() {
@@ -111,9 +108,9 @@ public final class ForeignModLoader {
 
     /** 已定义的容器类按加载器缓存：同一个加载器只能定义一次同名类。 */
     private static final Map<ClassLoader, Class<?>> CONTAINER_CLASS = new IdentityHashMap<>(2);
-    /** 已经被驱动起来的模组容器。 */
+
     private static final List<Object> CONTAINERS = new ArrayList<>(16);
-    /** 已经发过注册事件的注册表（按对象身份去重）。 */
+
     private static final Set<Object> FIRED = Collections.newSetFromMap(new IdentityHashMap<>(64));
     private static final List<String> NOTES = new ArrayList<>(8);
 
@@ -124,13 +121,11 @@ public final class ForeignModLoader {
     private ForeignModLoader() {
     }
 
-    /** 装载跨端模组。由宿主平台"原版注册表填充之前"这个时刻调用。 */
     public static Result install(ClassLoader host, List<Path> jars, String platform,
                                  boolean client, Consumer<String> log) {
         Platform p = Platform.of(platform);
         platformId = p.id();
-        // 先摆好对方平台的全局状态：补丁原版类（FeatureFlags 这类）会回调 FML，
-        // 没有这一步，驱动到注册表事件时会以 ExceptionInInitializerError 收场，
+
         // 报错点离真正的原因很远。见 FmlEnvironment 的长注释。
         FmlEnvironment.standUp(host, line -> log.accept("[跨端] " + line));
         Class<?> modAnnoClass = Ref.cls(host, p.modAnnoClass());
@@ -180,7 +175,7 @@ public final class ForeignModLoader {
                                         boolean client, Consumer<String> log) {
         List<Loaded> out = new ArrayList<>(2);
         Map<String, List<ClassAnn.Ann>> anns = ClassAnn.scanJar(jar, null);
-        // 先按注解把入口点归类：注解的 value 就是 modId（两端都是这个约定）。
+
         Map<String, List<String>> entryByMod = new LinkedHashMap<>();
         for (Map.Entry<String, List<ClassAnn.Ann>> e : anns.entrySet()) {
             for (ClassAnn.Ann a : e.getValue()) {
@@ -244,10 +239,6 @@ public final class ForeignModLoader {
         }
     }
 
-    /**
-     * 入口类构造器形态：对方平台支持的几种我们都试一遍。
-     * {@code (IEventBus, ModContainer)} / {@code (IEventBus)} / {@code (ModContainer)} / {@code ()}
-     */
     private static void instantiate(Class<?> entry, Object bus, Object container) throws Exception {
         Object[][] shapes = {{bus, container}, {bus}, {container}, {}};
         Throwable last = null;
@@ -263,7 +254,6 @@ public final class ForeignModLoader {
                 + (last == null ? "" : last.getMessage()) + "）");
     }
 
-    /** 建一个对方平台自己的事件总线（模组总线）。 */
     private static Object newBus(Platform p, ClassLoader host) throws Exception {
         Class<?> builder = Ref.cls(host, p.busBuilder());
         if (builder == null) {
@@ -283,7 +273,7 @@ public final class ForeignModLoader {
             Ref.callTyped(c, "setActiveContainer", new Class<?>[]{Ref.cls(host, p.modContainer())},
                     container);
         } catch (Throwable ignored) {
-            // 拿不到活动容器不影响构造：只是模组自己去问"我在哪个模组里"时会拿到空。
+
         }
     }
 
@@ -337,7 +327,7 @@ public final class ForeignModLoader {
             try {
                 return Ref.construct(c, v);
             } catch (Throwable ignored) {
-                // 退回到下面的最小实现
+
             }
         }
         Class<?> iface = Ref.cls(host, "org.apache.maven.artifact.versioning.ArtifactVersion");
@@ -350,7 +340,6 @@ public final class ForeignModLoader {
         });
     }
 
-    /** 把 {@code @EventBusSubscriber} 标注的类挂到这条总线上（对方平台的语义）。 */
     private static int registerSubscribers(ClassLoader host, Path jar, Platform p, String modId,
                                            boolean client, Object bus, Consumer<String> log) {
         int n = 0;
@@ -392,7 +381,6 @@ public final class ForeignModLoader {
         return n;
     }
 
-    /** 读包里的 mods.toml 的 [[mods]] 表。 */
     private static List<Map<String, Object>> readModTables(Path jar) {
         for (String entry : new String[]{"META-INF/neoforge.mods.toml", "META-INF/mods.toml"}) {
             try (ZipFile zip = new ZipFile(jar.toFile())) {
@@ -409,13 +397,11 @@ public final class ForeignModLoader {
                     return mods;
                 }
             } catch (Throwable ignored) {
-                // 试下一个入口
+
             }
         }
         return List.of();
     }
-
-    // ------------------------------------------------------------------ 事件与生命周期
 
     /**
      * 注册事件：每一个内置注册表都要单独发一次。
@@ -458,9 +444,7 @@ public final class ForeignModLoader {
             NOTES.add("ModContainer 没有 acceptEvent，注册表事件无法投递");
             return false;
         }
-        // 原版在自己的引导流程里会把内置注册表冻结。对方平台为此提供了
-        // "解冻 → 写 → 再冻结"的官方入口（GameData.unfreezeData / freezeData），
-        // 我们直接用它 —— 这比自己找注册表的内部字段去改要稳得多。
+
         boolean unfrozen = gameDataCall(host, p, "unfreezeData", log);
         Map<String, Object> registries = Ref.staticFieldsOfType(builtIn, registryCls);
         int fired = 0;
@@ -511,7 +495,6 @@ public final class ForeignModLoader {
         return fired > 0;
     }
 
-    /** 调用对方平台的 GameData 静态方法（解冻/冻结），没有这一端就跳过。 */
     private static boolean gameDataCall(ClassLoader host, Platform p, String name,
                                         Consumer<String> log) {
         Class<?> c = Ref.cls(host, p.gameData());
@@ -558,7 +541,6 @@ public final class ForeignModLoader {
         }
     }
 
-    /** 生命周期事件：模组用它做"注册之后、跑起来之前"的初始化。 */
     public static void fireLifecycle(ClassLoader host, boolean client, Consumer<String> log) {
         if (CONTAINERS.isEmpty()) {
             return;
@@ -643,29 +625,29 @@ public final class ForeignModLoader {
     private static byte[] containerBytes(Platform p) {
         String owner = p.modContainer().replace('.', '/');
         // 类名必须落在 ModContainer 所在的运行时包里：defineClass 走的是目标类的 lookup，
-        // 而 Lookup.defineClass 只能定义"与本 lookup 同包"的类。
+
         String self = owner + "$FusionForeignContainer";
         ClassEmitter e = new ClassEmitter(self, owner);
         e.version(61);
-        e.access(0x0031);                        // public final
+        e.access(0x0031);                        
         String busDesc = "L" + p.iEventBus().replace('.', '/') + ";";
         String infoDesc = "L" + p.iModInfo().replace('.', '/') + ";";
-        e.addField("fusionBus", busDesc, 0x0012); // private final
+        e.addField("fusionBus", busDesc, 0x0012); 
         int ctorSuper = e.constMethodref(owner, "<init>", "(" + infoDesc + ")V");
         int busField = e.constFieldref(self, "fusionBus", busDesc);
         ByteOut ctor = new ByteOut(16);
-        ctor.u1(0x2A);                                     // aload_0
-        ctor.u1(0x2B);                                     // aload_1
-        ctor.u1(0xB7).u2(ctorSuper);                       // invokespecial super(info)
-        ctor.u1(0x2A);                                     // aload_0
-        ctor.u1(0x2C);                                     // aload_2
-        ctor.u1(0xB5).u2(busField);                        // putfield this.fusionBus
-        ctor.u1(0xB1);                                     // return
+        ctor.u1(0x2A);                                     
+        ctor.u1(0x2B);                                     
+        ctor.u1(0xB7).u2(ctorSuper);                       
+        ctor.u1(0x2A);                                     
+        ctor.u1(0x2C);                                     
+        ctor.u1(0xB5).u2(busField);                        
+        ctor.u1(0xB1);                                     
         e.addMethod("<init>", "(" + infoDesc + busDesc + ")V", 0x0001, 2, 3, ctor.toByteArray());
         ByteOut get = new ByteOut(8);
-        get.u1(0x2A);                                      // aload_0
-        get.u1(0xB4).u2(busField);                         // getfield this.fusionBus
-        get.u1(0xB0);                                      // areturn
+        get.u1(0x2A);                                      
+        get.u1(0xB4).u2(busField);                         
+        get.u1(0xB0);                                      
         e.addMethod("getEventBus", "()" + busDesc, 0x0001, 1, 1, get.toByteArray());
         return e.build();
     }

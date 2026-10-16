@@ -68,7 +68,7 @@ public final class SwingEarlyWindow implements EarlyWindow {
             f.addWindowListener(new WindowAdapter() {
                 @Override
                 public void windowClosing(WindowEvent e) {
-                    // 允许玩家手动关掉"不想看"的加载窗口，不影响加载流程。
+
                     closeWindow();
                 }
             });
@@ -83,7 +83,7 @@ public final class SwingEarlyWindow implements EarlyWindow {
                         f.setIconImage(img);
                     }
                 } catch (Exception ignored) {
-                    // 图标读不到就用默认的，不影响功能。
+
                 }
             }
             f.setVisible(true);
@@ -163,7 +163,6 @@ public final class SwingEarlyWindow implements EarlyWindow {
         }
     }
 
-    /** 自绘画面。 */
     private final class Canvas extends JPanel {
         Canvas() {
             setPreferredSize(new Dimension(cfg.width, cfg.height));
@@ -187,12 +186,11 @@ public final class SwingEarlyWindow implements EarlyWindow {
         }
 
         private void draw(HudBackend b) {
-            // 显式限定：JComponent 也有 paint(Graphics)，不加限定会解析到那个重载上去。
+
             SwingEarlyWindow.paint(b, cfg, snapshot());
         }
     }
 
-    /** 一帧的绘制状态。把状态抽出来，绘制逻辑就能脱离窗口单独跑（截图、测试都用得上）。 */
     public record Frame(double fraction, String stage, String detail, String[] logs,
                         double elapsedSec, boolean finished, String summary) {
     }
@@ -206,7 +204,6 @@ public final class SwingEarlyWindow implements EarlyWindow {
                 (System.nanoTime() - startNanos) / 1e9, finished, summary);
     }
 
-    /** 离屏渲染一帧，用于自动截图与外观核对。 */
     public static java.awt.image.BufferedImage renderPreview(EarlyWindowConfig cfg, Frame frame) {
         java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(cfg.width, cfg.height,
                 java.awt.image.BufferedImage.TYPE_INT_ARGB);
@@ -219,14 +216,12 @@ public final class SwingEarlyWindow implements EarlyWindow {
         return img;
     }
 
-    /** 全部绘制逻辑集中在这里，只依赖 HudBackend 与配置，不依赖任何 Swing 组件。 */
     static void paint(HudBackend b, EarlyWindowConfig cfg, Frame f) {
         int w = cfg.width;
         int h = cfg.height;
         b.fillRect(0, 0, w, h, cfg.background);
         b.strokeRect(0, 0, w, h, 0x35FFFFFF);
 
-        // 顶部品牌区
         b.fillRect(0, 0, w, 62, cfg.panel);
         b.text(cfg.logoText, 20, 40, 22, cfg.accent, true);
         int logoW = b.textWidth(cfg.logoText, 22, true);

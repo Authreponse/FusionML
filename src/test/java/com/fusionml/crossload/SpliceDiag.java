@@ -55,7 +55,6 @@ public final class SpliceDiag {
         }
     }
 
-    /** 打印方法的 Code：偏移、操作码、以及前若干字节。 */
     private static void dumpCode(ClassFile cf, ClassFile.Member m) {
         for (ClassFile.Attr a : m.attrs) {
             if (!"Code".equals(cf.utf8(a.nameIndex()))) {
@@ -77,7 +76,7 @@ public final class SpliceDiag {
                 for (int i = 1; i < len && p + i < end; i++) {
                     sb.append(String.format(" %02x", all[p + i] & 0xFF));
                 }
-                // 带双字节常量池索引的指令，把索引解出来看看
+
                 Integer cpIdx = cpIndex(op, all, p);
                 if (cpIdx != null) {
                     sb.append("   cp#").append(cpIdx).append(" = ").append(cpIdx > 0

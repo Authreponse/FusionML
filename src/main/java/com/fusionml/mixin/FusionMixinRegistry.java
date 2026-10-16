@@ -64,13 +64,11 @@ public final class FusionMixinRegistry {
         return resolve(cl) != null;
     }
 
-    /** 服务内当前已注册的配置数量（用于验证"两边确实在同一个服务里"）。 */
     public static int knownConfigs(ClassLoader cl) {
         Class<?> mixins = resolve(cl);
         return mixins == null ? 0 : names(mixins).size();
     }
 
-    /** 列出服务内已注册配置的名字，便于肉眼核对两边是否都在。 */
     public static List<String> listConfigs(ClassLoader cl) {
         Class<?> mixins = resolve(cl);
         return mixins == null ? List.of() : new ArrayList<>(names(mixins));
@@ -264,11 +262,9 @@ public final class FusionMixinRegistry {
         }
     }
 
-    // ------------------------------------------------------------------ 内部工具
-
     private static Class<?> resolve(ClassLoader cl) {
         try {
-            // initialize=false：只确认这个类在不在，不触发它的静态初始化。
+
             // 静态初始化会去拉 Mixin 服务，在错误时机调用会污染宿主平台的引导流程。
             return Class.forName(MIXINS, false, cl);
         } catch (Throwable t) {
@@ -286,12 +282,11 @@ public final class FusionMixinRegistry {
                 }
             }
         } catch (Throwable ignored) {
-            // 拿不到就返回空集合：调用方会把"0 条"当成异常信号处理
+
         }
         return out;
     }
 
-    /** 取 {@code org.spongepowered.asm.mixin.transformer.Config#getName()}（配置文件名）。 */
     private static String configName(Object config) {
         try {
             return String.valueOf(config.getClass().getMethod("getName").invoke(config));

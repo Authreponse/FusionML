@@ -10,7 +10,42 @@
 ✅ 实测：NeoForge 版 DistantHorizons 的 Mixin 真的注入到了原版 Minecraft 类里
 ✅ 实测：yumi_mc_core 走通 NeoForge 的 DeferredRegister 注册链
 ✅ 实测：安装器给出"目录 + 版本"双重验证，装之前就知道能不能用
+✅ 实测：服务端一条命令拉取 + 装好 + 起服，`Done (6.229s)!` 并持续 tick
 ```
+
+## 服务端：对照 Fabric 安装器的做法
+
+不需要先用官方启动器装一遍，安装器自己拉取服务端 jar：
+
+```
+java -jar fusion-installer.jar --install-server --target ./server --fetch 26.3
+```
+
+它会向 `piston-meta` 查询版本清单、下载 `server.jar`、校验 SHA1、铺好标准目录，
+并生成 Fabric 形态的启动脚本。启动脚本**仍由官方 `server.jar` 启动**
+（它是一个 bundler），加载器只以 javaagent 形式挂上去，不替代官方入口：
+
+```cmd
+set JAVA_TOOL_OPTIONS=-javaagent:"%~dp0lib\fusionml\fusion-ml.jar"=server
+"%JAVA%" -Xmx4096m -jar "%~dp0server.jar" nogui
+```
+
+实测结果（26.3 原版服务端）：
+
+```
+[FusionML] 已改写 net.minecraft.server.MinecraftServer：注入 1 个方法，111872 字节
+[FusionML/跨端] 挂载点已进入（DedicatedServer）
+[Server thread/INFO]: Starting Minecraft server on *:25565
+[Server thread/INFO]: Done (5.612s)! For help, type "help"
+[Server thread/INFO]: Server empty for 60 seconds, pausing
+```
+
+> ⚠️ **"服务端起得来" ≠ "钩子生效了"。** 这两件事必须分开看：早期版本里钩子因
+> 常量池索引溢出被静默跳过，服务端照样打出 `Done`。判断钩子是否真的生效只能看
+> `挂载点已进入`。安装器刻意**不自动同意 EULA**（写出 `eula=false`，由你自己改）。
+
+改动清单、踩坑记录与"已验证 / 未验证"逐条对照见
+[docs/server-support-delivery.md](docs/server-support-delivery.md)。
 
 ---
 

@@ -20,12 +20,10 @@ public final class StageProfiler {
     private final long t0 = System.nanoTime();
     private long startedAt;
 
-    /** 开始计时。 */
     public void begin() {
         startedAt = System.nanoTime();
     }
 
-    /** 结束当前阶段并记录（同名阶段多次调用会自动累加）。 */
     public long end(String stage) {
         long now = System.nanoTime();
         long dur = now - startedAt;
@@ -66,7 +64,6 @@ public final class StageProfiler {
         return r == null ? 0 : r[0] / 1_000_000.0;
     }
 
-    /** 生成对齐的文本报告。 */
     public String report() {
         StringBuilder sb = new StringBuilder(512);
         double total = totalMillis();

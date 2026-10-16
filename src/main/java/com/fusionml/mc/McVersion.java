@@ -16,7 +16,6 @@ import java.util.Map;
  */
 public final class McVersion {
 
-    /** 一个依赖库；{@code natives} 非空表示它同时提供原生库。 */
     public record Library(String name, String path, String url, String sha1,
                           Map<String, String> natives, Object rules) {
         @Override
@@ -38,11 +37,20 @@ public final class McVersion {
     public final String clientUrl;
     public final String clientSha1;
     public final long clientSize;
+    /** 服务端 jar 的下载信息。{@code serverUrl} 为空表示这个版本不提供独立服务端 jar。 */
+    public final String serverUrl;
+    public final String serverSha1;
+    public final long serverSize;
+    /** 版本 JSON 里 {@code downloads.server_mappings} 的位置（混淆映射，服务端插桩要用）。 */
+    public final String serverMappingsUrl;
+    public final String serverMappingsSha1;
     public final Map<String, Object> raw;
 
     private McVersion(String id, String mainClass, int javaMajor, String javaComponent, String type,
                       String assetIndexId, String assetIndexUrl, String assetIndexSha1,
                       long assetIndexSize, String clientUrl, String clientSha1, long clientSize,
+                      String serverUrl, String serverSha1, long serverSize,
+                      String serverMappingsUrl, String serverMappingsSha1,
                       Map<String, Object> raw) {
         this.id = id;
         this.mainClass = mainClass;
@@ -56,6 +64,11 @@ public final class McVersion {
         this.clientUrl = clientUrl;
         this.clientSha1 = clientSha1;
         this.clientSize = clientSize;
+        this.serverUrl = serverUrl;
+        this.serverSha1 = serverSha1;
+        this.serverSize = serverSize;
+        this.serverMappingsUrl = serverMappingsUrl;
+        this.serverMappingsSha1 = serverMappingsSha1;
         this.raw = raw;
     }
 
@@ -64,6 +77,8 @@ public final class McVersion {
         Map<String, Object> java = Json.obj(root.get("javaVersion"));
         Map<String, Object> downloads = Json.obj(root.get("downloads"));
         Map<String, Object> client = Json.obj(downloads.get("client"));
+        Map<String, Object> server = Json.obj(downloads.get("server"));
+        Map<String, Object> serverMappings = Json.obj(downloads.get("server_mappings"));
         Map<String, Object> assets = Json.obj(root.get("assetIndex"));
 
         McVersion v = new McVersion(
@@ -79,6 +94,11 @@ public final class McVersion {
                 Json.str(client, "url", ""),
                 Json.str(client, "sha1", ""),
                 (long) num(client.get("size")),
+                Json.str(server, "url", ""),
+                Json.str(server, "sha1", ""),
+                (long) num(server.get("size")),
+                Json.str(serverMappings, "url", ""),
+                Json.str(serverMappings, "sha1", ""),
                 root);
 
         for (Object o : Json.arr(root.get("libraries"))) {
@@ -106,7 +126,6 @@ public final class McVersion {
         return v;
     }
 
-    /** 当前系统适用的库（已按 rules 过滤）。 */
     public List<Library> applicableLibraries(Map<String, Boolean> features) {
         List<Library> out = new ArrayList<>(libraries.size());
         for (Library lib : libraries) {
@@ -115,6 +134,18 @@ public final class McVersion {
             }
         }
         return out;
+    }
+
+    /** 这个版本是否提供独立服务端 jar（老版本可能不提供，例如某些远古快照）。 */
+    public boolean hasServerJar() {
+        return serverUrl != null && !serverUrl.isBlank();
+    }
+
+    public String serverSizeText() {
+        if (serverSize <= 0) {
+            return "大小未知";
+        }
+        return String.format(java.util.Locale.ROOT, "%.1f MB", serverSize / 1024.0 / 1024.0);
     }
 
     private static double num(Object o) {

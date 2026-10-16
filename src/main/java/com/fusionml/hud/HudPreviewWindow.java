@@ -49,7 +49,6 @@ public final class HudPreviewWindow {
     private final Random rnd = new Random(42);
     private double syntheticFrameMs = 8.0;
 
-    /** 渲染画布：每帧驱动一次帧率采样，再绘制 HUD。 */
     private final class Canvas extends JPanel {
         Canvas() {
             setPreferredSize(new Dimension(1100, 620));
@@ -85,7 +84,7 @@ public final class HudPreviewWindow {
         @Override
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
-            // 画个简单的背景纹理，方便判断面板半透明效果在杂乱背景上是否可读。
+
             drawBackdrop(g, getWidth(), getHeight());
             fps.tick();
             Graphics2D g2 = (Graphics2D) g.create();
@@ -102,7 +101,6 @@ public final class HudPreviewWindow {
         this.model = model;
     }
 
-    /** 打开窗口（非阻塞）。 */
     public void show() {
         SwingUtilities.invokeLater(() -> {
             JFrame frame = new JFrame("FusionML · FPS 显示 + 模组列表");
@@ -154,7 +152,6 @@ public final class HudPreviewWindow {
             frame.setVisible(true);
             canvas.requestFocusInWindow();
 
-            // 60Hz 渲染循环。帧耗时来自真实渲染时间 + 一次随机游走模拟负载，
             // 这样折线图会呈现真实系统的抖动特征，而不是一条平线。
             Timer timer = new Timer(16, e -> {
                 syntheticFrameMs = Math.max(3, Math.min(60,
@@ -184,7 +181,6 @@ public final class HudPreviewWindow {
         }
     }
 
-    /** 让预览窗口看起来像"叠在画面上"，也能顺便检验半透明面板的可读性。 */
     private static void drawBackdrop(Graphics g, int w, int h) {
         g.setColor(new Color(0x1A2438));
         g.fillRect(0, 0, w, h);

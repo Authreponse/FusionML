@@ -23,7 +23,6 @@ public final class McRules {
     private McRules() {
     }
 
-    /** 当前系统推断出的 os.name 取值。 */
     public static String currentOsName() {
         String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         if (os.contains("win")) {
@@ -35,7 +34,6 @@ public final class McRules {
         return "linux";
     }
 
-    /** 当前系统推断出的 os.arch 取值（Minecraft 用的是 x86 / x86_64 / arm64 这套叫法）。 */
     public static String currentOsArch() {
         String arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
         switch (arch) {
@@ -65,7 +63,7 @@ public final class McRules {
      */
     public static boolean allows(Object rules, Map<String, Boolean> features) {
         if (!(rules instanceof List<?> list) || list.isEmpty()) {
-            // 没有规则 = 无条件适用。
+
             return true;
         }
         boolean allowed = false;

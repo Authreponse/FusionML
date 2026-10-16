@@ -24,7 +24,6 @@ public final class FabricPlatformAdapter implements PlatformAdapter {
             "net.fabricmc.api.DedicatedServerModInitializer"
     };
 
-    /** 入口点分类 → 对应的初始化方法名。 */
     private static final String[][] ENTRYPOINT_KINDS = {
             {"main", "onInitialize"},
             {"client", "onInitializeClient"},
@@ -86,7 +85,7 @@ public final class FabricPlatformAdapter implements PlatformAdapter {
                     }
                 } catch (ClassNotFoundException e) {
                     // 该接口不在当前运行环境里 —— 明确说明，而不是让玩家看到一坨堆栈。
-                    // 这里刻意不带模组名：几百个模组会得到同一条消息，让上层去合并计数，
+
                     // 否则报告会被同一条提示刷屏，真正的问题反而被淹掉。
                     notes.add("运行环境未提供 " + ifaceName
                             + "，已跳过入口点调用（入口点类已正常实例化，说明类加载、依赖解析与三端适配都是通的）");

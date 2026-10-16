@@ -6,18 +6,15 @@ import java.util.List;
 import java.util.Locale;
 
 // 主加载页面：加载器接管游戏主界面。
-//
+
 // 做法不是"画在原生主界面上"，而是**把原生主界面收起来**，改由我们整屏渲染：
 // 原生 TitleScreen 一旦出现就把它置空（在下一 tick 做，避免在渲染中改屏幕导致重入），
-// 之后由我们的 HUD 钩子绘制整屏页面。页面上有一个"进入游戏"按钮，点击后恢复原生菜单。
-//
-// 视觉刻意与早期窗口保持一致（同一套配色与信息层次），让"启动 → 加载 → 进游戏"是同一种观感。
+
 // 和 FusionHud 一样，这里对游戏 API 的访问全部走反射，避免把加载器 jar 绑死在某个游戏版本上。
 public final class FusionMainPage {
 
     private static final String TITLE_SCREEN = "net.minecraft.client.gui.screens.TitleScreen";
 
-    // 配色与早期窗口一致
     private static final int BG = 0xF0101018;
     private static final int PANEL = 0xFF181826;
     private static final int ACCENT = 0xFF5AC8FA;
@@ -48,12 +45,6 @@ public final class FusionMainPage {
     private FusionMainPage() {
     }
 
-    /**
-     * 注入到 {@code TitleScreen.extractRenderState(GuiGraphicsExtractor, int, int, float)} 的钩子。
-     *
-     * <p>主界面每帧都会走这里，而且签名里自带渲染提取器 —— 这正是我们画主加载页面需要的东西。
-     * （挂在 {@code Gui.extractRenderState} 上拿不到提取器，页面根本画不出来。）
-     */
     public static void onTitleExtract(Object screen, Object extractor, int mouseX, int mouseY,
                                       float partialTick) {
         if (!active || failed || userDismissed) {
@@ -68,7 +59,7 @@ public final class FusionMainPage {
                 System.out.println("[FusionML] 主加载页面已接管游戏主界面（" + size[0] + "x" + size[1]
                         + "，左下角显示加载器名称）");
             }
-            // 页面已经真正画出来了，这时候才收早期窗口，衔接无缝。
+
             FusionHud.notifyInGamePageDrawn();
         } catch (Throwable t) {
             failed = true;
@@ -102,7 +93,6 @@ public final class FusionMainPage {
         }
     }
 
-    /** 页面上显示的状态行（由加载流程提供）。 */
     public interface StatusLine {
         static String current() {
             return "";
@@ -119,7 +109,6 @@ public final class FusionMainPage {
         status = line;
     }
 
-    /** 从 HUD 钩子里调用：每帧一次。 */
     public static void tick(Object minecraft, Object extractor, Object font,
                             int screenW, int screenH) {
         if (!active || failed) {
@@ -133,7 +122,7 @@ public final class FusionMainPage {
             draw(extractor, font, screenW, screenH);
             if (!announcedFirstFrame) {
                 announcedFirstFrame = true;
-                // 这条日志是"主加载页面真的在渲染"的硬证据：不依赖肉眼确认。
+
                 System.out.println("[FusionML] 主加载页面已接管游戏主界面（"
                         + screenW + "x" + screenH + "，左下角显示加载器名称）");
             }
@@ -186,15 +175,13 @@ public final class FusionMainPage {
                     String.class, int.class, int.class, int.class, boolean.class);
         }
 
-        // 整屏底色：这一刻它就是"游戏的主界面"
         mFill.invoke(g, 0, 0, w, h, BG);
-        // 顶部一条强调色，视觉上与早期窗口呼应
+
         mFill.invoke(g, 0, 0, w, 3, ACCENT);
 
         int cx = w / 2;
         int y = Math.max(60, h / 2 - 150);
 
-        // 字标：游戏字体只提供固定字号，所以不靠字号做层次，改用间距、颜色与两侧装饰线。
         String logo = "FusionML";
         int logoW = width(font, logo);
         mText.invoke(g, font, logo, cx - logoW / 2, y, ACCENT, true);
@@ -207,7 +194,6 @@ public final class FusionMainPage {
         mText.invoke(g, font, tagline, cx - width(font, tagline) / 2, y, DIM, false);
         y += 30;
 
-        // 状态面板
         int panelW = Math.min(560, w - 80);
         int panelX = cx - panelW / 2;
         int panelH = 150;
@@ -232,7 +218,6 @@ public final class FusionMainPage {
         mText.invoke(g, font, "平台运行时由官方实现提供，发现 / 索引 / 注入由 FusionML 完成",
                 panelX + 16, y + 100, DIM, false);
 
-        // 进度感：用一个随时间流动的进度条表示"正在准备"
         int barY = y + panelH - 26;
         int barW = panelW - 32;
         mFill.invoke(g, panelX + 16, barY, panelX + 16 + barW, barY + 6, 0x40000000);
@@ -242,7 +227,6 @@ public final class FusionMainPage {
         mFill.invoke(g, segX, barY, segX + segW, barY + 6, ACCENT);
         y += panelH + 26;
 
-        // 按钮
         int btnW = 220;
         int btnH = 30;
         int btnX = cx - btnW / 2;
@@ -262,12 +246,10 @@ public final class FusionMainPage {
         String ver = "v1.0.0";
         mText.invoke(g, font, ver, 12 + width(font, mine) + 8, h - 18, DIM, false);
 
-        // 右下角：提示
         String hint = "由 FusionML 接管主界面";
         mText.invoke(g, font, hint, w - 12 - width(font, hint), h - 18, DIM, false);
     }
 
-    /** 恢复原生主界面。 */
     public static void dismiss() {
         userDismissed = true;
         System.out.println("[FusionML] 用户选择进入游戏，恢复原生主界面");
@@ -283,8 +265,6 @@ public final class FusionMainPage {
         }
     }
 
-    // ------------------------------------------------------------------ 输入与工具
-
     private static Object minecraft() throws Exception {
         if (mGetInstance == null) {
             mGetInstance = Class.forName("net.minecraft.client.Minecraft").getMethod("getInstance");
@@ -292,7 +272,6 @@ public final class FusionMainPage {
         return mGetInstance.invoke(null);
     }
 
-    /** 窗口句柄（GLFW window），用来直接查光标与鼠标键状态。 */
     private static long mcWindowHandle() {
         try {
             if (mGetWindow == null) {
@@ -318,7 +297,7 @@ public final class FusionMainPage {
             double[] ys = new double[1];
             glfw.getMethod("glfwGetCursorPos", long.class, double[].class, double[].class)
                     .invoke(null, handle, xs, ys);
-            // GLFW 给的是窗口像素坐标，页面用的是 GUI 缩放坐标，需要换算回逻辑尺寸
+
             int[] ww = new int[1];
             int[] wh = new int[1];
             glfw.getMethod("glfwGetWindowSize", long.class, int[].class, int[].class)
@@ -349,7 +328,6 @@ public final class FusionMainPage {
         }
     }
 
-    /** 文本宽度（游戏字体的默认字号）。 */
     private static int width(Object font, String text) throws Exception {
         Method m = font.getClass().getMethod("width", String.class);
         return (Integer) m.invoke(font, text);

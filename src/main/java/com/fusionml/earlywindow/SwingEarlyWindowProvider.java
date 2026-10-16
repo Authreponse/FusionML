@@ -2,7 +2,6 @@ package com.fusionml.earlywindow;
 
 import java.awt.GraphicsEnvironment;
 
-/** 内置的图形版早期窗口提供者。无图形环境时自动让位给控制台实现。 */
 public final class SwingEarlyWindowProvider implements EarlyWindowProvider {
 
     @Override

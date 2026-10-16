@@ -14,7 +14,6 @@ import java.util.List;
  */
 public final class ClassScanner {
 
-    /** 扫描结果。 */
     public record Info(String name, String superName, String[] interfaces, String[] annotations,
                        int major) {
         public boolean hasAnnotation(String desc) {
@@ -78,7 +77,6 @@ public final class ClassScanner {
         return ClassFile.decodeMutf8(d, utf8Off[utf8Index], utf8Len[utf8Index]);
     }
 
-    /** 完整扫描（类名 + 继承 + 注解）。 */
     public static Info scan(byte[] d) {
         if (d.length < 10 || ClassFile.u4i(d, 0) != ClassFile.MAGIC) {
             return null;
@@ -177,7 +175,6 @@ public final class ClassScanner {
         return p;
     }
 
-    /** 读取注解列表；只取注解类型描述符，元素值按格式跳过。 */
     private static void readAnnotations(byte[] d, int p, int len, int[] tag, int[] fa,
                                         int[] utf8Off, int[] utf8Len, byte[] raw, List<String> out,
                                         boolean nested) {
@@ -194,7 +191,7 @@ public final class ClassScanner {
             int pairs = ClassFile.u2(d, p);
             p += 2;
             for (int k = 0; k < pairs; k++) {
-                p += 2;                              // element_name_index
+                p += 2;                              
                 p = skipElementValue(d, p);
             }
         }
@@ -219,7 +216,7 @@ public final class ClassScanner {
     }
 
     private static int skipAnnotation(byte[] d, int p) {
-        p += 2;                                      // type_index
+        p += 2;                                      
         int pairs = ClassFile.u2(d, p);
         p += 2;
         for (int k = 0; k < pairs; k++) {

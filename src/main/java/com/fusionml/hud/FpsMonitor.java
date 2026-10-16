@@ -32,12 +32,10 @@ public final class FpsMonitor {
         this.lastNanos = System.nanoTime();
     }
 
-    /** 用当前时间打一帧。 */
     public void tick() {
         frame(System.nanoTime());
     }
 
-    /** 记录一帧结束的绝对时间。 */
     public void frame(long nowNanos) {
         long delta = nowNanos - lastNanos;
         lastNanos = nowNanos;
@@ -52,7 +50,7 @@ public final class FpsMonitor {
         }
         totalFrames++;
         double instant = 1_000_000_000.0 / delta;
-        // 指数平滑：HUD 上的数字不该逐帧乱跳，玩家要看的是趋势。
+
         smoothedFps += (instant - smoothedFps) * 0.1;
     }
 
@@ -64,12 +62,10 @@ public final class FpsMonitor {
         return totalFrames;
     }
 
-    /** 平滑后的当前帧率。 */
     public double fps() {
         return size == 0 ? 0 : smoothedFps;
     }
 
-    /** 由最近约一秒的帧耗时累加得到的帧率（不依赖墙钟）。 */
     public double recentFps() {
         if (size == 0) {
             return 0;
@@ -87,7 +83,6 @@ public final class FpsMonitor {
         return n == 0 || sum == 0 ? 0 : n * 1_000_000_000.0 / sum;
     }
 
-    /** 平均帧耗时（毫秒）。 */
     public double avgMs() {
         if (size == 0) {
             return 0;
@@ -118,7 +113,6 @@ public final class FpsMonitor {
         return sum == 0 ? 0 : worst * 1_000_000_000.0 / sum;
     }
 
-    /** 最差单帧耗时（毫秒）。 */
     public double worstMs() {
         long worst = 0;
         for (int i = 0; i < size; i++) {

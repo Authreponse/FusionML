@@ -33,7 +33,6 @@ import java.util.concurrent.TimeUnit;
  */
 public final class CpuTopology {
 
-    /** 探测结果快照，不可变。 */
     public static final class Info {
         private final int physicalCores;
         private final int logicalCores;
@@ -298,7 +297,7 @@ public final class CpuTopology {
                     "HKLM\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", "/v", "~MHz");
             freq = extractHexOrDec(first);
         } catch (Throwable ignored) {
-            // 忽略
+
         }
 
         long l3 = 0;
@@ -326,7 +325,6 @@ public final class CpuTopology {
                 "Windows 注册表 + 启发式（探测 " + millisSince(budgetStart) + "ms）");
     }
 
-    /** 用 wmic 取物理核数。它在新系统上已被标记弃用，但仍在，且比 PowerShell 快两个数量级。 */
     private static int probeWmic(int logical) {
         try {
             String out = exec(400, "wmic", "cpu", "get", "NumberOfCores", "/value");
@@ -347,7 +345,6 @@ public final class CpuTopology {
         }
     }
 
-    /** 精确但慢的 CIM 查询，只在显式开启深度探测时使用。返回 [cores, l3Bytes, l2Bytes]。 */
     private static int[] probeCim() {
         try {
             String ps = exec(4000, "powershell", "-NoProfile", "-NonInteractive", "-Command",
@@ -399,7 +396,7 @@ public final class CpuTopology {
                 }
             }
         } catch (Throwable ignored) {
-            // 忽略
+
         }
         return 0;
     }

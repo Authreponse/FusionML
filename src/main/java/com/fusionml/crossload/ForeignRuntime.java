@@ -31,7 +31,6 @@ import java.util.function.Consumer;
  */
 public final class ForeignRuntime {
 
-    /** 解析结果。 */
     public record Found(String platform, String sourceVersion, List<Path> jars, String note) {
         public boolean usable() {
             return !jars.isEmpty();
@@ -71,7 +70,6 @@ public final class ForeignRuntime {
         }
     }
 
-    /** 早登记的那一拨：不含 FML 引导本体的运行时包。 */
     public static List<Path> earlySubset(List<Path> jars) {
         List<Path> out = new ArrayList<>(jars.size());
         for (Path p : jars) {
@@ -82,7 +80,6 @@ public final class ForeignRuntime {
         return out;
     }
 
-    /** 驱动时才登记的那一拨：含 FML 引导本体的运行时包。 */
     public static List<Path> lateSubset(List<Path> jars) {
         List<Path> out = new ArrayList<>(jars.size());
         for (Path p : jars) {
@@ -93,7 +90,6 @@ public final class ForeignRuntime {
         return out;
     }
 
-    /** 手动指定优先：{@code -Dfusion.foreignRuntime.jars=a.jar;b.jar}。 */
     private static final String PROP_JARS = "fusion.foreignRuntime.jars";
 
     /**
@@ -157,13 +153,11 @@ public final class ForeignRuntime {
     /** 从一份版本定义里挑出我们真正需要的 jar。 */
     private static List<Path> pick(McInstance instance, McInstance.Effective eff, String platform,
                                    Consumer<String> log) {
-        // 只要 API / 事件总线 / 元数据这几类，其余交给宿主平台已有的库。
+
         String[] wanted = "neoforge".equals(platform)
                 ? new String[]{"net.neoforged.fancymodloader:loader:", "net.neoforged:bus:",
                                "net.jodah:typetools:", "org.apache.maven:maven-artifact:",
-                               // mergetool 的 api 包里带着 net.neoforged.api.distmarker.Dist ——
-                               // 它是 FML 大量签名里的类型（例如 FMLLoader 的构造参数），
-                               // 少了它连"建立 FML 全局状态"这一步都做不了。
+
                                "net.neoforged:mergetool:"}
                 : new String[]{"net.minecraftforge:forge:", "net.minecraftforge:fmlloader:",
                                "net.minecraftforge:bus:", "net.jodah:typetools:",
@@ -189,7 +183,7 @@ public final class ForeignRuntime {
             }
         }
         // NeoForge 的主 jar（universal）不在版本定义的 libraries 里 ——
-        // 它是启动时由它自己的引导器按坐标找到的，所以我们按目录规律自己找。
+
         out.addAll(findNeoForgeJar(instance, eff, platform));
         return new ArrayList<>(out);
     }
@@ -204,7 +198,7 @@ public final class ForeignRuntime {
             return List.of();
         }
         // 版本前缀取自这一端的 fancymodloader 版本所在的目录名（26.2 / 26.3 …），
-        // 再在其中挑最新的一份；找不到就退化为"所有候选里最新"。
+
         List<Path> candidates = new ArrayList<>(4);
         try (DirectoryStream<Path> versions = Files.newDirectoryStream(dir)) {
             for (Path v : versions) {
@@ -230,4 +224,3 @@ public final class ForeignRuntime {
         return List.of(candidates.get(candidates.size() - 1));
     }
 }
-

@@ -47,7 +47,7 @@ public final class GameArguments {
             }
             return out;
         }
-        // 也允许直接传入已经求值过一遍的字符串数组（合并继承链时会用到）。
+
         if (argsNode instanceof String[] arr) {
             for (String s : arr) {
                 if (s != null && !s.isEmpty()) {
@@ -77,9 +77,8 @@ public final class GameArguments {
         return out;
     }
 
-    // 替换 ${key} 占位符。
     // 未知键保留原样而不是替换成空串：一个原样保留的占位符在日志里一眼可见，
-    // 而空串只会表现为"某个参数莫名消失"，后者难查得多。
+
     public static String substitute(String text, Map<String, String> params) {
         if (text == null || text.indexOf("${") < 0) {
             return text;

@@ -9,14 +9,6 @@ import java.util.List;
 import java.util.zip.CRC32;
 import java.util.zip.Deflater;
 
-/**
- * 自研 ZIP 写入器（与 {@link FastZip} 对称）。
- *
- * <p>同样不依赖 {@code java.util.zip.ZipOutputStream}：压缩算法本身用 JDK 的
- * {@link Deflater}（这是平台能力），但 ZIP 容器格式的编排 —— 本地文件头、中央目录、
- * ZIP64 扩展字段、EOCD —— 全部自己写。这样读写两侧对格式的理解是一致的，
- * 也便于把测试夹具做成"真正会被自家读取器接受"的包。
- */
 public final class FastZipWriter implements Closeable {
 
     private static final int METHOD_STORED = 0;
@@ -41,7 +33,6 @@ public final class FastZipWriter implements Closeable {
         this.out = out;
     }
 
-    /** 写入一个条目。{@code compress=false} 时按 STORED 存（适合已经压缩过的内容）。 */
     public void add(String name, byte[] data, boolean compress) throws IOException {
         byte[] nameBytes = name.getBytes(StandardCharsets.UTF_8);
         Central c = new Central();
@@ -74,18 +65,17 @@ public final class FastZipWriter implements Closeable {
         c.compressedSize = payload.length;
         c.localOffset = written;
 
-        // 本地文件头
         writeInt(0x04034b50);
-        writeShort(20);                              // version needed
-        writeShort(0x0800);                          // 通用标志：文件名是 UTF-8
+        writeShort(20);                              
+        writeShort(0x0800);                          
         writeShort(c.method);
-        writeShort(0);                               // 修改时间
-        writeShort(0);                               // 修改日期
+        writeShort(0);                               
+        writeShort(0);                               
         writeInt(c.crc);
         writeInt(c.compressedSize);
         writeInt(c.size);
         writeShort(nameBytes.length);
-        writeShort(0);                               // 扩展字段长度
+        writeShort(0);                               
         out.write(nameBytes);
         out.write(payload);
         // 注意：本地文件头的 30 字节已经由上面的 writeInt/writeShort 逐个累加过了，
@@ -94,13 +84,6 @@ public final class FastZipWriter implements Closeable {
         centrals.add(c);
     }
 
-    /**
-     * 原样写入一个条目的<b>压缩数据</b>（不重新压缩）。
-     *
-     * <p>与 {@link com.fusionml.util.FastZip#readRaw} 对称，用于"整份搬运一个大包、
-     * 只替换其中少数条目"的场景（例如把原版客户端包重建成"原版 + 对方平台补丁"）。
-     * 逐个解压再压缩一个 40MB 的游戏包要十几秒，原样搬运是纯拷贝。</p>
-     */
     public void addRaw(String name, int method, long crc, long size, byte[] compressed)
             throws IOException {
         byte[] nameBytes = name.getBytes(StandardCharsets.UTF_8);
@@ -128,7 +111,6 @@ public final class FastZipWriter implements Closeable {
         centrals.add(c);
     }
 
-    /** 写完中央目录与 EOCD。 */
     public void finish() throws IOException {
         if (finished) {
             return;
@@ -137,8 +119,8 @@ public final class FastZipWriter implements Closeable {
         for (Central c : centrals) {
             byte[] nameBytes = c.name.getBytes(StandardCharsets.UTF_8);
             writeInt(0x02014b50);
-            writeShort(20);                          // version made by
-            writeShort(20);                          // version needed
+            writeShort(20);                          
+            writeShort(20);                          
             writeShort(0x0800);
             writeShort(c.method);
             writeShort(0);
@@ -147,14 +129,14 @@ public final class FastZipWriter implements Closeable {
             writeInt(c.compressedSize);
             writeInt(c.size);
             writeShort(nameBytes.length);
-            writeShort(0);                           // extra
-            writeShort(0);                           // comment
-            writeShort(0);                           // disk
-            writeShort(0);                           // internal attrs
-            writeInt(0);                             // external attrs
+            writeShort(0);                           
+            writeShort(0);                           
+            writeShort(0);                           
+            writeShort(0);                           
+            writeInt(0);                             
             writeInt(c.localOffset);
             out.write(nameBytes);
-            // 同理：中央目录头 46 字节已由 writeInt/writeShort 累加，这里只补文件名长度。
+
             written += nameBytes.length;
         }
         long cdSize = written - cdStart;

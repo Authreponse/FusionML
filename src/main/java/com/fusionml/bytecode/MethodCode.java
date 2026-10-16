@@ -23,7 +23,6 @@ public final class MethodCode {
     public record ExEntry(int startPc, int endPc, int handlerPc, int catchType) {
     }
 
-    /** 一个内嵌属性的名字索引与原始字节。 */
     public record Nested(int nameIndex, byte[] info) {
     }
 
@@ -133,7 +132,7 @@ public final class MethodCode {
                 return shiftStackMapTable(info, delta);
             case "RuntimeVisibleTypeAnnotations":
             case "RuntimeInvisibleTypeAnnotations":
-                // 方法体内的类型注解带绝对字节码偏移，注入后这些偏移必然失效。
+
                 // 留着 = 输出错误的调试信息；移除 = 只是少了一类工具元数据。这里选择移除并明确告知。
                 notes.add("已移除方法内类型注解属性 " + name + "（注入会让其中的字节码偏移失效）");
                 return null;
@@ -177,14 +176,14 @@ public final class MethodCode {
                 if (newDelta <= 63) {
                     out.u1(newDelta);
                 } else {
-                    out.u1(251).u2(newDelta);             // same_frame_extended
+                    out.u1(251).u2(newDelta);             
                 }
             } else if (tag <= 127) {
                 int vti = vtiSize(info, p);
                 if (newDelta <= 63) {
                     out.u1(64 + newDelta).raw(info, p, vti);
                 } else {
-                    out.u1(247).u2(newDelta).raw(info, p, vti);   // same_locals_1_stack_item_extended
+                    out.u1(247).u2(newDelta).raw(info, p, vti);   
                 }
                 p += vti;
             } else if (tag == 247) {
@@ -192,7 +191,7 @@ public final class MethodCode {
                 out.u1(247).u2(newDelta).raw(info, p, vti);
                 p += vti;
             } else if (tag >= 248 && tag <= 251) {
-                out.u1(tag).u2(newDelta);                 // chop / same_extended，无帧体
+                out.u1(tag).u2(newDelta);                 
             } else if (tag >= 252 && tag <= 254) {
                 int k = tag - 251;
                 int start = p;
@@ -220,7 +219,6 @@ public final class MethodCode {
         return out.toByteArray();
     }
 
-    /** verification_type_info 的字节长度：0~6 是 1 字节，7/8 是 3 字节。 */
     private static int vtiSize(byte[] b, int p) {
         int tag = b[p] & 0xFF;
         return (tag == 7 || tag == 8) ? 3 : 1;
@@ -231,7 +229,6 @@ public final class MethodCode {
         b[off + 1] = (byte) v;
     }
 
-    /** 组装成完整的属性区（含 attribute_count）。 */
     public byte[] encodeAttributeBlob(int codeNameIndex, List<Nested> otherAttrs) {
         ByteOut o = new ByteOut(code.length + 64 + otherAttrs.size() * 32);
         o.u2(otherAttrs.size() + 1);

@@ -29,11 +29,9 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class ModClassIndex {
 
-    /** 一个类在哪个 jar 的哪个条目里。 */
     public record Loc(int jarIndex, String entryName, long size) {
     }
 
-    /** 构建结果。 */
     public record Result(Map<String, Loc> byName, Map<String, List<Loc>> modClasses,
                          Map<Integer, Integer> maxClassVersionByJar, long totalClasses,
                          List<String> warnings) {
@@ -52,7 +50,6 @@ public final class ModClassIndex {
             }
         }
 
-        // 1) 拉平任务表
         List<FastZip.Entry> flatEntries = new ArrayList<>(4096);
         List<Integer> flatJar = new ArrayList<>(4096);
         for (int j = 0; j < jars.size(); j++) {
@@ -118,11 +115,11 @@ public final class ModClassIndex {
             Loc loc = new Loc(jarOf[i], entry.name(), entry.size());
             Loc prev = byName.putIfAbsent(n, loc);
             if (prev != null) {
-                // 同名类被两个模组提供 —— 现实里很常见（打包时把依赖塞进了自己的 jar）。
+
                 // 保留先注册的，并记录提示，避免"随机生效一个"的黑盒行为。
                 duplicateClasses[0]++;
                 // 只留前若干条明细：装了 Fabric API 的实例里，重复类动辄上百个
-                // （每个模组都打包了自己的那份库），全部打出来会把真正要看的信息淹掉。
+
                 if (warnings.size() < 8) {
                     warnings.add("类 " + n.replace('/', '.') + " 被多个模组重复提供，已采用 "
                             + jars.get(prev.jarIndex()).path().getFileName() + " 中的版本");
@@ -136,12 +133,10 @@ public final class ModClassIndex {
         return new Result(byName, modClasses, maxVersionByJar, total, warnings);
     }
 
-    /** 点号类名 → 内部名。 */
     public static String internal(String className) {
         return className.replace('.', '/');
     }
 
-    /** 内部名 → 点号类名。 */
     public static String dotted(String internalName) {
         return internalName.replace('/', '.');
     }

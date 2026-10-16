@@ -2,19 +2,20 @@ package com.fusionml.install;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
-import java.awt.Cursor;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
-import java.awt.GradientPaint;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
+import java.awt.LinearGradientPaint;
+import java.awt.Point;
 import java.awt.RenderingHints;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
+import java.awt.Shape;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -29,7 +30,6 @@ import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
-import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
@@ -37,7 +37,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 
 /**
- * 图形安装器。
+ * 图形安装器（圆角版）。
  *
  * <p>设计目标很具体：<b>双击就能用，一眼能看懂，出错能看懂为什么</b>。
  * 所以它做了三件在普通安装器里少见但这里很值得做的事：
@@ -49,39 +49,58 @@ import javax.swing.border.EmptyBorder;
  *       图形与命令行两条路径的行为必然一致，不会出现"界面装完和命令装完不一样"。</li>
  * </ol>
  *
+ * <h2>圆角是怎么来的</h2>
+ * Swing 的默认组件是直角的，所以这个界面里<b>所有可见的"面"都是自绘的</b>：
+ * 卡片、按钮、输入框、下拉框、进度条、复选框、滚动条，全部由 {@link RoundedUi} 绘制。
+ * 这里只负责把它们摆上去，不再出现 {@code setBorder(LineBorder)} 这类直角画法。
+ *
  * <p>配色走深色系：和早期窗口、游戏内 HUD 是同一套观感，用户从安装到进游戏看到的是一致的东西。
  */
 final class InstallerGui {
 
-    private static final Color BG = new Color(0x14, 0x16, 0x1E);
-    private static final Color CARD = new Color(0x1E, 0x21, 0x2C);
-    private static final Color LINE = new Color(0x2E, 0x33, 0x44);
-    private static final Color TEXT = new Color(0xE8, 0xEC, 0xF6);
-    private static final Color DIM = new Color(0x9A, 0xA3, 0xC4);
-    private static final Color ACCENT = new Color(0x5A, 0xC8, 0xFA);
-    private static final Color OK = new Color(0x54, 0xD9, 0x8C);
-    private static final Color WARN = new Color(0xF2, 0xC1, 0x4E);
-    private static final Color BAD = new Color(0xEF, 0x5B, 0x6B);
+    // 配色统一由 RoundedUi 提供，避免两处各写一份导致深浅不一。
+    private static final Color BG = RoundedUi.BG;
+    private static final Color TEXT = RoundedUi.TEXT;
+    private static final Color DIM = RoundedUi.DIM;
+    private static final Color ACCENT = RoundedUi.ACCENT;
+    private static final Color OK = RoundedUi.OK;
+    private static final Color WARN = RoundedUi.WARN;
+    private static final Color BAD = RoundedUi.BAD;
+
+    /** 预览图尺寸不再依赖 frame.getWidth()，避免打包/布局顺序引起的尺寸漂移。 */
+    private static final int SHOT_W = 1060;
+    private static final int SHOT_H = 980;
+
+    private static final int LOG_CARD_CHROME = 57;
+
+    private static final int LOG_CARD_LINES = 12;
+
+    /**
+     * body() 建好的日志卡与其文本区，供 build() 在 pack() 之后做"整行对齐"。
+     *
+     * <p>用静态字段而不是加参数：body() 的参数已经很长（14 个），
+     * 再多两个只会更难读；而这两者本来就只服务于"pack 后对齐"这一个动作。
+     * 安装器是单实例界面（进程内只会建一次），没有并发复用的风险。
+     */
+    private static JPanel BODY_LOG_CARD;
+    private static JTextArea BODY_LOG_TEXT;
 
     private InstallerGui() {
     }
 
     static void show(FusionInstaller.Options initial) {
+        RoundedUi.installDefaults();
         SwingUtilities.invokeLater(() -> build(initial, null));
     }
 
-    /**
-     * 生成界面预览图（不弹窗，直接把内容面板画进图片）。
-     *
-     * <p>用途很实际：安装界面的改动如果没有办法被复核，就只能靠"我改完了"这句话。
-     * 有了这张图，界面的样子可以被反复确认，也能在无人在场时自检（例如命令行里跑一次）。
-     */
     static void screenshot(FusionInstaller.Options initial, java.nio.file.Path out) {
+        RoundedUi.installDefaults();
         SwingUtilities.invokeLater(() -> {
             try {
                 build(initial, out);
             } catch (Throwable t) {
                 System.out.println("界面预览生成失败：" + t);
+                t.printStackTrace(System.out);
                 System.exit(2);
             }
         });
@@ -92,49 +111,89 @@ final class InstallerGui {
         JFrame frame = new JFrame("FusionML 安装器");
         frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
 
-        JTextField gameDir = new JTextField(
-                (o.gameDir != null ? o.gameDir : InstanceLayout.detectDefaultGameDir()).toString(), 40);
-        gameDir.setFont(new Font("Microsoft YaHei UI", Font.PLAIN, 13));
-        JTextField modsFrom = new JTextField(o.modsFrom == null ? "" : o.modsFrom.toString(), 40);
-        JTextField inherit = new JTextField(o.inheritVersion, 14);
+        JTextField gameDir = RoundedUi.field(
+                (o.gameDir != null ? o.gameDir : InstanceLayout.detectDefaultGameDir()).toString(),
+                40, true);
+        JTextField modsFrom = RoundedUi.field(o.modsFrom == null ? "" : o.modsFrom.toString(),
+                40, true);
+        // 继承版本是只读的：它的值来自下拉框，见下面 versionBox 的监听器。
+        JTextField inherit = RoundedUi.field(o.inheritVersion, 14, false);
         // 版本下拉框：**扫完目录之后才填充**。
-        //
+
         // 以前这里只有一个自由文本框，用户得自己把版本目录名一字不差地敲进去 ——
         // 敲错一个空格就找不到版本，而错误信息很晚才出现（启动计划阶段）。
         // 现在改成"选目录 → 体检 → 从探测到的版本里挑"，抄不错也漏不掉。
-        JComboBox<String> versionBox = new JComboBox<>();
-        versionBox.setFont(new Font("Microsoft YaHei UI", Font.PLAIN, 13));
-        JCheckBox registerProfile = new JCheckBox("注册到启动器（写 launcher_profiles.json 与版本定义）", true);
-        JCheckBox dryRun = new JCheckBox("预演：只看会做什么，不写任何文件", false);
-        styleCheck(registerProfile);
-        styleCheck(dryRun);
+        JComboBox<String> versionBox = RoundedUi.combo();        JCheckBox registerProfile = RoundedUi.check("注册到启动器（写 launcher_profiles.json 与版本定义）", true);
+        JCheckBox dryRun = RoundedUi.check("预演：只看会做什么，不写任何文件", false);
 
         JTextArea log = new JTextArea(10, 78);
         log.setEditable(false);
-        log.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        log.setFont(RoundedUi.mono(12));
         log.setBackground(new Color(0x12, 0x14, 0x1C));
         log.setForeground(new Color(0xC8, 0xD2, 0xE8));
-        log.setBorder(new EmptyBorder(6, 8, 6, 8));
+        log.setCaretColor(ACCENT);
+        log.setBorder(new EmptyBorder(8, 10, 8, 10));
 
         JLabel status = new JLabel("准备就绪");
         status.setForeground(DIM);
-        JProgressBar bar = new JProgressBar(0, 100);
-        bar.setStringPainted(false);
-        bar.setForeground(ACCENT);
-        bar.setBackground(new Color(0x0E, 0x10, 0x16));
-        bar.setBorderPainted(false);
-        bar.setPreferredSize(new Dimension(100, 14));
+        status.setFont(RoundedUi.font(Font.PLAIN, 12));
+        RoundedUi.RoundedProgressBar bar = new RoundedUi.RoundedProgressBar(0, 100);
 
         JPanel env = new JPanel();
         env.setOpaque(false);
         env.setLayout(new BoxLayout(env, BoxLayout.Y_AXIS));
 
-        JButton install = primary("一键安装", OK);
-        JButton uninstall = secondary("卸载");
-        JButton preview = secondary("预览");
-        JButton openDir = secondary("打开目录");
-        JButton refresh = secondary("重新体检");
-        JButton launch = secondary("启动游戏");
+        JButton install = RoundedUi.button("一键安装", RoundedUi.ButtonStyle.primary(OK), 14, true);
+        JButton uninstall = RoundedUi.button("卸载", RoundedUi.ButtonStyle.secondary(), 13, false);
+        JButton preview = RoundedUi.button("预览", RoundedUi.ButtonStyle.secondary(), 13, false);
+        JButton openDir = RoundedUi.button("打开目录", RoundedUi.ButtonStyle.secondary(), 13, false);
+        JButton refresh = RoundedUi.button("重新体检", RoundedUi.ButtonStyle.secondary(), 13, false);
+        JButton launch = RoundedUi.button("启动游戏", RoundedUi.ButtonStyle.primary(ACCENT), 13, true);
+
+        // 圆角输入框靠"焦点描边"表达状态，所以必须真的能拿到焦点；
+        // 但默认的 Tab 顺序会把焦点塞给一堆辅助控件，这里显式排一条主流程：
+        // 游戏目录 → 模组来源 → 版本 → 两个勾选 → 按钮。
+        java.util.List<Component> order = new java.util.ArrayList<>();
+        order.add(gameDir);
+        order.add(modsFrom);
+        order.add(versionBox);
+        order.add(registerProfile);
+        order.add(dryRun);
+        order.add(install);
+        order.add(preview);
+        order.add(uninstall);
+        order.add(launch);
+        order.add(refresh);
+        order.add(openDir);
+        install.setFocusTraversalPolicyProvider(false);
+        frame.setFocusTraversalPolicy(new java.awt.FocusTraversalPolicy() {
+            @Override
+            public Component getComponentAfter(java.awt.Container c, Component a) {
+                int i = order.indexOf(a);
+                return order.get((i + 1) % order.size());
+            }
+
+            @Override
+            public Component getComponentBefore(java.awt.Container c, Component a) {
+                int i = order.indexOf(a);
+                return order.get((i - 1 + order.size()) % order.size());
+            }
+
+            @Override
+            public Component getFirstComponent(java.awt.Container c) {
+                return order.get(0);
+            }
+
+            @Override
+            public Component getLastComponent(java.awt.Container c) {
+                return order.get(order.size() - 1);
+            }
+
+            @Override
+            public Component getDefaultComponent(java.awt.Container c) {
+                return order.get(0);
+            }
+        });
 
         Runnable scan = () -> {
             Path dir = Path.of(gameDir.getText().trim());
@@ -154,8 +213,7 @@ final class InstallerGui {
                 SwingUtilities.invokeLater(() -> {
                     renderEnvironment(env, r);
                     // 把探测到的版本填进下拉框 —— 这是"选目录 → 选版本"的第二半。
-                    //
-                    // 保留用户已经选过的那个：重新体检不该把手选的结果冲掉。
+
                     String keep = (String) versionBox.getSelectedItem();
                     versionBox.removeAllItems();
                     for (InstallEnvironment.Version v : r.versions()) {
@@ -175,7 +233,7 @@ final class InstallerGui {
                         }
                     }
                     // 选中的版本同步写回文本框：安装器其余部分仍然读文本字段，
-                    // 这样"下拉框"和"命令行的 --inherit"走的是同一个值，不会出现两处不一致。
+
                     Object sel = versionBox.getSelectedItem();
                     if (sel != null) {
                         inherit.setText(String.valueOf(sel));
@@ -185,8 +243,6 @@ final class InstallerGui {
                             : "未安装：点“一键安装”即可");
                     status.setForeground(r.installed() ? OK : WARN);
 
-                    // ---- 双重验证：目录一道、版本一道 ----
-                    //
                     // 顺序是刻意的（先目录、后版本）：版本列表来自目录体检，
                     // 目录都不对就谈不上选版本。两道的结论都写进日志区，
                     // 用户能看到"为什么不能装"，而不是只看到一句"失败"。
@@ -221,11 +277,13 @@ final class InstallerGui {
                     } else if (overall == InstallVerify.Level.WARN) {
                         status.setForeground(WARN);
                     }
+                    // 体检后自检：验证"选版本 → 生效"这条链路。
+                    // 必须在这里（扫描完成、下拉框已填充）而不能在最初的自检里做。
+                    log.append(postScanCheck(versionBox, inherit));
                 });
             }, "fusion-installer-scan").start();
         };
 
-        // 下拉框与文本框保持同步：安装器其余逻辑读的是 inherit 这个文本字段。
         versionBox.addActionListener(e -> {
             Object sel = versionBox.getSelectedItem();
             if (sel != null) {
@@ -252,7 +310,8 @@ final class InstallerGui {
                 runInstaller(frame, log, bar, status, "卸载", opts, true, scan);
             }
         });
-        openDir.addActionListener(e -> {            try {
+        openDir.addActionListener(e -> {
+            try {
                 java.awt.Desktop.getDesktop().open(Path.of(gameDir.getText().trim()).toFile());
             } catch (Throwable t) {
                 log.append("打开目录失败：" + t + System.lineSeparator());
@@ -262,6 +321,16 @@ final class InstallerGui {
         launch.addActionListener(e -> launchGame(frame, log, Path.of(gameDir.getText().trim())));
         gameDir.addActionListener(e -> scan.run());
 
+        // 离屏出图点不了按钮，所以"能点、能输入"必须在代码层面证明。
+
+        String uiCheck = selfCheck(gameDir, modsFrom, inherit, versionBox, registerProfile, dryRun,
+                install, uninstall, preview, openDir, refresh, launch, log, bar);
+
+        // 必须在 UI 装好之后调用，所以放在这里。
+        RoundedUi.styleComboPopup(versionBox);
+
+        // 截图路径**不做**透明窗口：离屏渲染拿不到桌面背景，四角会变黑而不是透明，
+
         JPanel root = new JPanel(new BorderLayout());
         root.setBackground(BG);
         root.add(header(), BorderLayout.NORTH);
@@ -269,19 +338,40 @@ final class InstallerGui {
                 install, uninstall, preview, openDir, refresh, launch, status, bar, log),
                 BorderLayout.CENTER);
 
-        frame.setContentPane(root);
+        if (shot == null) {
+
+            RoundedUi.makeWindowRounded(frame);
+            JPanel chrome = RoundedUi.windowChrome(null);
+            chrome.add(RoundedUi.titleBar("FusionML 安装器", frame), BorderLayout.NORTH);
+            chrome.add(root, BorderLayout.CENTER);
+            // 圆角边上留 1px 描边空间，避免内容顶着圆角画出去
+            chrome.setBorder(BorderFactory.createEmptyBorder(1, 1, 1, 1));
+            frame.setContentPane(chrome);
+        } else {
+            frame.setContentPane(root);
+        }
+
         frame.pack();
-        frame.setMinimumSize(new Dimension(900, 640));
+
+        alignLogCardToLines(BODY_LOG_CARD, BODY_LOG_TEXT);
+        frame.pack();
+        // 最小尺寸：必须让 ③ 执行日志在最小尺寸下**真的看得见**。
+
+        // 这个数是量出来的，不是猜的（用 MinLayoutCheck 实测）：
+
+        // 780 能保证 ③ 露出 80px 以上（标题 + 两行日志）。
+        // 日志是安装过程唯一的反馈，宁可最小高度大一点，也不能让它消失。
+        frame.setMinimumSize(new Dimension(940, 780));
         frame.setLocationRelativeTo(null);
 
         if (shot != null) {
             // 预览模式：把体检同步跑完（否则图上会是"正在体检"），再画图退出。
-            //
+
             // 注意这里要**把扫描那套逻辑也走一遍**（填下拉框 + 双重验证 + 写日志），
             // 而不是只调 renderEnvironment —— 否则预览图上是看不到
             // "版本下拉框里有什么"和"双重验证结论"的，而这两样恰恰是这轮新增的东西。
             // 实测踩到：只渲染环境区时，图上下拉框是空的、日志区也是空的，
-            // 看起来像"功能没做"，其实是预览路径没跟上。
+
             try {
                 Path dir = Path.of(gameDir.getText().trim());
                 InstallEnvironment.Report r = InstallEnvironment.scan(dir, guessRequiredJava(dir));
@@ -293,10 +383,10 @@ final class InstallerGui {
                     versionBox.addItem(v.id());
                 }
                 // 默认选中**用户当前所在的那个版本**，而不是列表第一个。
-                //
+
                 // 实测踩到：用户把"某一个版本目录"选进来时（很常见，整合包里就是这一层），
                 // 版本列表取自它的同级目录，而同级里可能有几十个版本 ——
-                // 默认选第一个（本机恰好有个叫 "1" 的目录）就会得到
+
                 //   "第二道：版本校验 ✘ 在 …\26.3-Fabric 0.19.5 里找不到版本 1"
                 // 一个"结论正确但默认值很蠢"的结果。用户明明就在那个版本目录里。
                 if (versionBox.getItemCount() > 0) {
@@ -312,7 +402,6 @@ final class InstallerGui {
                     inherit.setText(String.valueOf(versionBox.getSelectedItem()));
                 }
 
-                // 2) 双重验证，结论写进日志区
                 log.append(System.lineSeparator());
                 InstallVerify.Result dirCheck = InstallVerify.verifyDirectory(dir);
                 log.append(dirCheck.render());
@@ -327,22 +416,21 @@ final class InstallerGui {
                 }
                 status.setText(r.installed() ? "已检测到本加载器" : "未安装：点“一键安装”即可");
                 status.setForeground(overall == InstallVerify.Level.FAIL ? BAD : (r.installed() ? OK : WARN));
-            } catch (Throwable ignored) {
-                // 预览图不因为体检失败而失败
+
+                // 自检的"下半场"：体检已把版本填进下拉框，现在才能验证
+                // "选了版本 → inherit 真的被写回"这条链路。安装器其余部分读的是
+                // inherit 这个文本字段，所以这就是"选完再点安装真的用这个版本"的证据。
+                log.append(postScanCheck(versionBox, inherit));
+            } catch (Throwable t) {
+                // 预览图不因为体检失败而失败，但要把原因写出来，不能静默吞掉。
+                log.append("（预览：体检失败 " + t + "）" + System.lineSeparator());
             }
-            root.setSize(frame.getWidth(), frame.getHeight());
-            layoutAll(root);
-            java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(
-                    Math.max(1, frame.getWidth()), Math.max(1, frame.getHeight()),
-                    java.awt.image.BufferedImage.TYPE_INT_RGB);
-            Graphics2D g = img.createGraphics();
-            root.printAll(g);
-            g.dispose();
+            log.append(uiCheck);
             try {
-                javax.imageio.ImageIO.write(img, "png", shot.toFile());
-                System.out.println("安装界面预览已写出：" + shot);
+                writeShot(root, shot, shotW(), shotH());
             } catch (Exception e) {
                 System.out.println("写出预览图失败：" + e);
+                e.printStackTrace(System.out);
             }
             frame.dispose();
             System.exit(0);
@@ -356,34 +444,387 @@ final class InstallerGui {
         log.append(com.fusionml.FusionVersions.describe() + System.lineSeparator());
         log.append("默认游戏目录：" + InstanceLayout.detectDefaultGameDir() + System.lineSeparator());
         log.append("安装只做新增，不覆盖已有文件；卸载按清单精确还原。" + System.lineSeparator());
+
+        System.out.println(uiCheck);
         scan.run();
     }
 
-    // ------------------------------------------------------------------ 界面搭建
+    /**
+     * 把内容面板画成图片，并把<b>整窗圆角</b>画出来。
+     *
+     * <p>关键在于<b>先把尺寸定死再布局</b>：{@code frame.pack()} 之后的尺寸
+     * 受当前 Look&amp;Feel 与字体度量影响，直接用它会在不同机器上得到不同大小的图。
+     * 这里统一用 {@link #SHOT_W}/{@link #SHOT_H}，并且显式 {@code doLayout} 一遍 ——
+     * 否则组件还没被真正布局过，printAll 会得到一张控件挤在角落的图。
+     *
+     * <p>圆角窗口在离屏渲染下拿不到桌面背景，所以这里不等系统帮我们透明，
+     * 而是先按整窗圆角渲染，再用 {@link RoundedUi#roundWindowShot} 把圆角外
+     * 涂成外部底色并补描边 —— 截图于是能如实反映"窗口是圆的"，又不会出现黑角。
+     */
+    private static void writeShot(JPanel root, java.nio.file.Path shot) throws java.io.IOException {
+        writeShot(root, shot, SHOT_W, SHOT_H);
+    }
+
+    private static void writeShot(JPanel root, java.nio.file.Path shot, int w, int h)
+            throws java.io.IOException {
+        root.setSize(w, h);
+        layoutAll(root);
+        java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(
+                w, h, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        // 底色先铺满，避免任何没被自绘覆盖的像素留成黑色（看起来像"绘制残缺"）
+        g.setColor(BG);
+        g.fillRect(0, 0, w, h);
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        root.printAll(g);
+        g.dispose();
+
+        java.awt.image.BufferedImage rounded =
+                RoundedUi.roundWindowShot(img, new Color(0x0A, 0x0B, 0x10));
+        // 截图模式下四角是"裁"出来的，不是真透明（离屏渲染拿不到桌面）。
+        // 这一点必须写在图上，否则看图的用户会以为圆角是假的 —— 见下面这行注释条。
+        drawShotFootnote(rounded);
+        javax.imageio.ImageIO.write(rounded, "png", shot.toFile());
+        System.out.println("安装界面预览已写出：" + shot + "（" + w + "x" + h + "）");
+        System.out.println(SHOT_NOTE);
+    }
+
+    static final String SHOT_NOTE =
+            "说明：截图模式为离屏渲染，四角圆角以裁剪方式呈现；实际运行时为真透明圆角窗口。";
+
+    /**
+     * 在图片右下角画一条说明注记。
+     *
+     * <p>Lead 的要求：拿图给用户看时必须能自证，否则用户会以为截图的圆角是假的。
+     * 画在图上比只打 stdout 更保险 —— 图片被单独转发时说明也不会丢。
+     */
+    private static void drawShotFootnote(java.awt.image.BufferedImage img) {
+        Graphics2D g = RoundedUi.aa(img.createGraphics());
+        g.setFont(RoundedUi.font(Font.PLAIN, 11));
+        FontMetrics fm = g.getFontMetrics();
+        String text = "截图模式：离屏渲染，四角以裁剪呈现 · 运行时为真透明圆角窗口";
+        int pad = 8;
+        int tw = fm.stringWidth(text);
+        int th = fm.getHeight();
+        int x = img.getWidth() - tw - pad * 2 - 4;
+        int y = img.getHeight() - th - pad * 2 - 4;
+        if (x > 4 && y > 4) {
+            g.setColor(new Color(0, 0, 0, 170));
+            g.fill(RoundedUi.roundRect(x, y, tw + pad * 2, th + pad, 6));
+            g.setColor(RoundedUi.DIM);
+            g.drawString(text, x + pad, y + pad + fm.getAscent());
+        }
+        g.dispose();
+    }
+
+    private static int shotW() {
+        return envInt("FUSION_SHOT_W", SHOT_W);
+    }
+
+    private static int shotH() {
+        return envInt("FUSION_SHOT_H", SHOT_H);
+    }
+
+    private static int envInt(String key, int dflt) {
+        try {
+            String v = System.getenv(key);
+            if (v != null && !v.isBlank()) {
+                int n = Integer.parseInt(v.trim());
+                if (n >= 600 && n <= 4000) {
+                    return n;
+                }
+            }
+        } catch (Throwable ignored) {
+
+        }
+        return dflt;
+    }
+
+    /**
+     * 代码层面确认"每个控件都可用"。
+     *
+     * <p>为什么需要这个：离屏截图点不了按钮，所以"按钮有没有监听器""输入框能不能打字"
+     * 这类问题在图上完全看不出来 —— 它只会在用户真正点下去的那一刻暴露，
+     * 而那时已经太晚了。这里直接查组件自身的状态，把结论写进日志区。
+     *
+     * <p>检查项：
+     * <ol>
+     *   <li>按钮：{@code getActionListeners().length > 0}（挂了监听器才点得动）；</li>
+     *   <li>输入框：{@code isEditable() && isEnabled()}（能编辑才输得进字）；</li>
+     *   <li>下拉框：{@code isEnabled()} 且监听器数量正确（版本同步靠它）；</li>
+     *   <li>复选框：可点击且三态正常。</li>
+     * </ol>
+     */
+    private static String selfCheck(JTextField gameDir, JTextField modsFrom, JTextField inherit,
+                                    JComboBox<String> versionBox, JCheckBox registerProfile,
+                                    JCheckBox dryRun, JButton install, JButton uninstall,
+                                    JButton preview, JButton openDir, JButton refresh,
+                                    JButton launch, JTextArea log,
+                                    RoundedUi.RoundedProgressBar bar) {
+        StringBuilder sb = new StringBuilder();
+        int bad = 0;
+        sb.append(System.lineSeparator()).append("===== 界面自检（控件可用性）=====").append(System.lineSeparator());
+
+        JButton[] buttons = {install, preview, uninstall, launch, refresh, openDir};
+        String[] names = {"一键安装", "预览", "卸载", "启动游戏", "重新体检", "打开目录"};
+        for (int i = 0; i < buttons.length; i++) {
+            int n = buttons[i].getActionListeners().length;
+            boolean ok = n > 0 && buttons[i].isEnabled();
+            if (!ok) {
+                bad++;
+            }
+            sb.append(ok ? "  [OK]   " : "  [FAIL] ")
+                    .append("按钮「").append(names[i]).append("」= ")
+                    .append(n).append(" 个监听器，enabled=").append(buttons[i].isEnabled())
+                    .append(System.lineSeparator());
+        }
+
+        JTextField[] fields = {gameDir, modsFrom};
+        String[] fnames = {"游戏目录", "模组来源"};
+        for (int i = 0; i < fields.length; i++) {
+            boolean ok = fields[i].isEditable() && fields[i].isEnabled();
+            if (!ok) {
+                bad++;
+            }
+            sb.append(ok ? "  [OK]   " : "  [FAIL] ")
+                    .append("输入框「").append(fnames[i]).append("」可编辑=")
+                    .append(fields[i].isEditable()).append("，enabled=").append(fields[i].isEnabled())
+                    .append(System.lineSeparator());
+        }
+
+        String probe = "probe:" + System.nanoTime();
+        String saved = gameDir.getText();
+        gameDir.setText(probe);
+        boolean roundTrip = probe.equals(gameDir.getText());
+        gameDir.setText(saved);
+        if (!roundTrip) {
+            bad++;
+        }
+        sb.append(roundTrip ? "  [OK]   " : "  [FAIL] ")
+                .append("游戏目录输入框写入→读回一致（证明真的可输入）").append(System.lineSeparator());
+
+        // 3) 继承版本：**故意只读**，它不是缺陷而是设计（值由下拉框决定）
+        boolean inheritOk = !inherit.isEditable() && inherit.isEnabled();
+        if (!inheritOk) {
+            bad++;
+        }
+        sb.append(inheritOk ? "  [OK]   " : "  [FAIL] ")
+                .append("「继承原版版本」为只读且 enabled=true（只读是设计：值由下拉框同步）")
+                .append(System.lineSeparator());
+
+        // 那是个错误的断言：InstallerGui 只挂了 1 个 ActionListener
+
+        // 根本不是一个常驻监听器。结果自检报了一个 [FAIL]，而功能其实完全正常 ——
+        // 一个会误报的自检比没有自检更糟，因为它会让人去修不存在的问题。
+
+        // （安装器其余部分读的就是这个字段，所以这条链路是"选了版本真的生效"的证据）。
+
+        // 注意：自检发生在体检**之前**，所以此刻下拉框通常是空的（还没扫目录）。
+        // 空的时候这条同步没法验，必须如实标成"待体检后验证"，不能假装通过或假装失败。
+        int comboListeners = versionBox.getActionListeners().length;
+        boolean comboOk = versionBox.isEnabled() && comboListeners >= 1;
+        String probeItem = null;
+        boolean syncTested = false;
+        boolean syncOk = false;
+        if (versionBox.getItemCount() >= 1) {
+            Object before = versionBox.getSelectedItem();
+            int target = versionBox.getItemCount() >= 2
+                    ? (versionBox.getSelectedIndex() == 0 ? 1 : 0) : 0;
+            versionBox.setSelectedIndex(target);
+            probeItem = String.valueOf(versionBox.getSelectedItem());
+            syncOk = probeItem.equals(inherit.getText());
+            syncTested = true;
+            comboOk = comboOk && syncOk;
+            if (target == 1 && before != null) {
+                versionBox.setSelectedItem(before);
+            }
+        }
+        if (!comboOk) {
+            bad++;
+        }
+        sb.append(comboOk ? "  [OK]   " : "  [FAIL] ")
+                .append("版本下拉框 enabled=").append(versionBox.isEnabled())
+                .append("，监听器=").append(comboListeners)
+                .append(syncTested
+                        ? "，选中「" + probeItem + "」已同步到「继承原版版本」=" + syncOk
+                        : "，选项数=0（自检早于体检，同步待在扫描后验证）")
+                .append(System.lineSeparator());
+
+        boolean checkOk = registerProfile.isSelected() && !dryRun.isSelected()
+                && registerProfile.isEnabled() && dryRun.isEnabled();
+        registerProfile.setSelected(!registerProfile.isSelected());
+        boolean toggled = !registerProfile.isSelected();
+        registerProfile.setSelected(true);
+        checkOk = checkOk && toggled;
+        if (!checkOk) {
+            bad++;
+        }
+        sb.append(checkOk ? "  [OK]   " : "  [FAIL] ")
+                .append("复选框「注册到启动器」默认勾选、可切换；「预演」默认不勾选")
+                .append(System.lineSeparator());
+
+        bar.setValue(66);
+        boolean barOk = bar.getValue() == 66;
+        bar.setValue(0);
+        if (!barOk) {
+            bad++;
+        }
+        sb.append(barOk ? "  [OK]   " : "  [FAIL] ")
+                .append("进度条可设值（自绘圆角，0..100）").append(System.lineSeparator());
+
+        boolean logOk = !log.isEditable() && log.isEnabled();
+        if (!logOk) {
+            bad++;
+        }
+        sb.append(logOk ? "  [OK]   " : "  [FAIL] ")
+                .append("日志区只读且可写入（只读是设计）").append(System.lineSeparator());
+
+        String family = RoundedUi.FAMILY;
+        boolean cjk = RoundedUi.canRenderCjk(family);
+        if (!cjk) {
+            bad++;
+        }
+        sb.append(cjk ? "  [OK]   " : "  [FAIL] ")
+                .append("界面字体「").append(family).append("」可显示中文 = ").append(cjk)
+                .append(System.lineSeparator());
+        javax.swing.JTextArea probeArea = new javax.swing.JTextArea("中文");
+        probeArea.setFont(RoundedUi.mono(12));
+        String monoFamily = probeArea.getFont().getFamily();
+        // 日志区除了中文，还要能画 InstallVerify 输出的 ✔ / ✘ / →，否则勾叉是豆腐块。
+        boolean monoAll = RoundedUi.canRenderReport(monoFamily);
+        if (!monoAll) {
+            bad++;
+        }
+        sb.append(monoAll ? "  [OK]   " : "  [FAIL] ")
+                .append("日志区字体「").append(monoFamily)
+                .append("」可显示中文+勾叉✔✘+箭头→ = ").append(monoAll)
+                .append(System.lineSeparator());
+
+        sb.append(bad == 0 ? "  → 全部通过：没有发现不可用的控件。"
+                : "  → 有 " + bad + " 项不通过，见上。").append(System.lineSeparator());
+        sb.append("===== 自检结束 =====").append(System.lineSeparator());
+        return sb.toString();
+    }
+
+    /**
+     * 把日志卡的高度对齐到"整行"，消除半行文字。
+     *
+     * <h3>为什么需要这个</h3>
+     * 日志卡 = 标题 + 一个可滚动的文本区。如果卡片高度减去固有占用（边距+标题+间隙）
+     * 之后不是行高的整数倍，文本区的可视高度就会带一个零头 ——
+     * 最后一行只露出一部分，看起来就是"一行字被横切成两半"。
+     *
+     * <p>这不是布局 bug（滚动容器边界本来可能落在任意像素），但它确实是观感问题，
+     * 而且修起来很直接：把卡片高度调整成 {@code 固定占用 + N × 行高}。
+     *
+     * <h3>为什么在 pack() 之后做</h3>
+     * 行高来自字体度量，而字体度量要等组件真正布局过一次才可靠
+     * （换字体、改字号、不同 DPI 都会变）。写死 16px 会在别的环境吸附错位，
+     * 那比不对齐更糟。所以这里用实测值现算。
+     */
+    private static void alignLogCardToLines(JPanel logCard, JTextArea log) {
+        if (logCard == null || log == null) {
+            return;
+        }
+        int lineH = RoundedUi.lineHeightOf(log);
+        if (lineH <= 0) {
+            return;
+        }
+        Insets ci = logCard.getInsets();
+
+        int titleH = 0;
+        for (Component c : logCard.getComponents()) {
+            if (c instanceof JLabel l && l.getText() != null && !l.getText().isEmpty()) {
+                titleH = Math.max(titleH, l.getPreferredSize().height);
+            }
+        }
+        int vgap = 10; 
+        int chrome = ci.top + ci.bottom + titleH + vgap;
+        int desired = chrome + LOG_CARD_LINES * lineH;
+        Dimension cur = logCard.getPreferredSize();
+        if (cur == null || cur.height != desired) {
+            logCard.setPreferredSize(new Dimension(cur == null ? 100 : cur.width, desired));
+            logCard.revalidate();
+        }
+    }
+
+    /**
+     * 体检之后的自检：验证"选版本 → 生效"这条链路。
+     *
+     * <p>Lead 的验收标准之一是"版本下拉框在扫描后出现且可选，选完再点安装要真的用这个版本"。
+     * 这条链路的关键是：安装逻辑读的是 {@code inherit} 文本框，而文本框的值来自
+     * 下拉框的选中项。所以只要证明"改选中项 → 文本框跟着变"，就等于证明了这个功能。
+     *
+     * <p>这个检查必须在扫描**之后**做（之前下拉框还是空的），所以单独一个方法。
+     */
+    private static String postScanCheck(JComboBox<String> versionBox, JTextField inherit) {
+        StringBuilder sb = new StringBuilder();
+        int n = versionBox.getItemCount();
+        sb.append(System.lineSeparator())
+                .append("===== 界面自检（体检后：版本选择链路）=====")
+                .append(System.lineSeparator());
+        if (n == 0) {
+            sb.append("  [WARN] 没有探测到版本，无法验证版本选择链路")
+                    .append(System.lineSeparator());
+            sb.append("===== 自检结束 =====").append(System.lineSeparator());
+            return sb.toString();
+        }
+        sb.append("  [OK]   下拉框已在扫描后填充，选项数=").append(n)
+                .append("，当前选中=").append(versionBox.getSelectedItem())
+                .append(System.lineSeparator());
+
+        String cur = String.valueOf(versionBox.getSelectedItem());
+        boolean synced = cur.equals(inherit.getText());
+        sb.append(synced ? "  [OK]   " : "  [FAIL] ")
+                .append("选中值「").append(cur).append("」与「继承原版版本」文本框一致 = ")
+                .append(synced)
+                .append("（安装逻辑读的就是这个字段）")
+                .append(System.lineSeparator());
+        if (n >= 2) {
+            int other = versionBox.getSelectedIndex() == 0 ? 1 : 0;
+            versionBox.setSelectedIndex(other);
+            String moved = String.valueOf(versionBox.getSelectedItem());
+            boolean movedOk = moved.equals(inherit.getText());
+            sb.append(movedOk ? "  [OK]   " : "  [FAIL] ")
+                    .append("切换到「").append(moved).append("」后文本框同步 = ")
+                    .append(movedOk).append(System.lineSeparator());
+            versionBox.setSelectedItem(cur); 
+        }
+        sb.append("===== 自检结束 =====").append(System.lineSeparator());
+        return sb.toString();
+    }
 
     private static JPanel header() {
         JPanel p = new JPanel(new BorderLayout()) {
             @Override
             protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setPaint(new GradientPaint(0, 0, new Color(0x1B, 0x2A, 0x46), getWidth(), getHeight(),
-                        new Color(0x14, 0x16, 0x1E)));
-                g2.fillRect(0, 0, getWidth(), getHeight());
-                g2.setColor(new Color(0x5A, 0xC8, 0xFA, 90));
-                g2.fillRect(0, getHeight() - 2, getWidth(), 2);
+                Graphics2D g2 = RoundedUi.aa(g);
+                int w = getWidth();
+                int h = getHeight();
+                g2.setPaint(new LinearGradientPaint(
+                        new Point(0, 0), new Point(Math.max(1, w), h),
+                        new float[]{0f, 1f},
+                        new Color[]{new Color(0x1B, 0x2A, 0x46), BG}));
+                g2.fillRect(0, 0, w, h);
+                // 底部一条渐变强调线（两端淡出，比一根实线精致，也避免和卡片描边抢注意力）
+                g2.setPaint(new LinearGradientPaint(
+                        new Point(0, 0), new Point(Math.max(1, w), 0),
+                        new float[]{0f, 0.15f, 0.85f, 1f},
+                        new Color[]{RoundedUi.alpha(ACCENT, 0), RoundedUi.alpha(ACCENT, 150),
+                                RoundedUi.alpha(ACCENT, 150), RoundedUi.alpha(ACCENT, 0)}));
+                g2.fillRect(0, h - 2, w, 2);
                 g2.dispose();
             }
         };
-        p.setBorder(new EmptyBorder(18, 22, 16, 22));
+        p.setBorder(new EmptyBorder(18, 24, 16, 24));
         JLabel title = new JLabel("FusionML");
-        title.setFont(new Font("Microsoft YaHei UI", Font.BOLD, 26));
+        title.setFont(RoundedUi.font(Font.BOLD, 26));
         title.setForeground(TEXT);
         JLabel sub = new JLabel("同进程三端加载器 · 安装器 v1.0.0");
-        sub.setFont(new Font("Microsoft YaHei UI", Font.PLAIN, 13));
+        sub.setFont(RoundedUi.font(Font.PLAIN, 13));
         sub.setForeground(ACCENT);
         JLabel note = new JLabel("把安装程序和游戏文件放进同一个目录，点一下就能用");
-        note.setFont(new Font("Microsoft YaHei UI", Font.PLAIN, 12));
+        note.setFont(RoundedUi.font(Font.PLAIN, 12));
         note.setForeground(DIM);
         JPanel left = new JPanel();
         left.setOpaque(false);
@@ -401,22 +842,72 @@ final class InstallerGui {
                                JComboBox<String> versionBox,
                                JCheckBox registerProfile, JCheckBox dryRun, JPanel env,
                                JButton install, JButton uninstall, JButton preview, JButton openDir,
-                               JButton refresh, JButton launch, JLabel status, JProgressBar bar,
+                               JButton refresh, JButton launch, JLabel status,
+                               RoundedUi.RoundedProgressBar bar,
                                JTextArea log) {
+        // 布局策略（这里踩过三次坑，写清楚）：
+
+        // 为什么用"整体滚动"而不是"让卡片各自压缩"：
+
+        JPanel column = new JPanel(new GridBagLayout());
+        column.setOpaque(false);
+
+        JPanel one = stepOne(gameDir, modsFrom, inherit, versionBox, registerProfile, dryRun,
+                refresh, openDir);
+        JPanel two = stepTwo(env);
+        JPanel logCard = card("③ 执行日志");
+        logCard.add(RoundedUi.scroll(log), BorderLayout.CENTER);
+
+        // 这里踩过一个很隐蔽的坑，值得写下来：早先给 logCard 设了
+
+        // 加上 12 行日志（12×16 = 192px）= 249px，取 249 而不是 260。
+
+        // 为什么纠结这 11px：日志区是"卡片内滚动区 + 卡片边框"两层，
+        // 如果卡片高度不是 (固有占用 + N×行高)，那么滚动区的高度就会带一个零头，
+
+        logCard.setPreferredSize(new Dimension(100, LOG_CARD_CHROME + LOG_CARD_LINES * 16));
+
+        GridBagConstraints c = new GridBagConstraints();
+        c.gridx = 0;
+        c.weightx = 1;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.insets = new Insets(0, 0, 12, 0);
+
+        c.gridy = 0;
+        c.weighty = 0;
+        column.add(one, c);
+
+        c.gridy = 1;
+        c.weighty = 0;
+        column.add(two, c);
+
+        c.gridy = 2;
+        // 关键：weighty 必须是 0（见上面注释）。让 logCard 保持自己的 260，
+
+        c.weighty = 0;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.insets = new Insets(0, 0, 0, 0);
+        column.add(logCard, c);
+
+        BODY_LOG_CARD = logCard;
+        BODY_LOG_TEXT = log;
+
+        JScrollPane columnScroll = RoundedUi.scroll(column);
+
+        columnScroll.setVerticalScrollBarPolicy(
+                javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+
+        RoundedUi.snapToLines(columnScroll, RoundedUi.lineHeightOf(log));
+
         JPanel wrap = new JPanel(new BorderLayout(0, 12));
         wrap.setBackground(BG);
-        wrap.setBorder(new EmptyBorder(14, 22, 18, 22));
+        wrap.setBorder(new EmptyBorder(14, 24, 12, 24));
+        wrap.add(columnScroll, BorderLayout.CENTER);
 
-        JPanel top = new JPanel(new BorderLayout(0, 12));
-        top.setOpaque(false);
-        top.add(stepOne(gameDir, modsFrom, inherit, versionBox, registerProfile, dryRun,
-                refresh, openDir), BorderLayout.NORTH);
-        top.add(stepTwo(env), BorderLayout.CENTER);
-        wrap.add(top, BorderLayout.NORTH);
-
+        // 安装器最怕的就是"按钮不知道去哪了"，所以它必须钉在 SOUTH。
         JPanel actions = new JPanel(new BorderLayout());
         actions.setOpaque(false);
-        JPanel buttons = new JPanel(new GridLayout(1, 5, 8, 0));
+        JPanel buttons = new JPanel(new GridLayout(1, 5, 10, 0));
         buttons.setOpaque(false);
         buttons.add(install);
         buttons.add(preview);
@@ -424,22 +915,15 @@ final class InstallerGui {
         buttons.add(launch);
         actions.add(buttons, BorderLayout.CENTER);
 
-        JPanel progress = new JPanel(new BorderLayout(0, 6));
+        JPanel progress = new JPanel(new BorderLayout(0, 8));
         progress.setOpaque(false);
         progress.add(status, BorderLayout.NORTH);
         progress.add(bar, BorderLayout.CENTER);
-        JPanel south = new JPanel(new BorderLayout(0, 12));
+        JPanel south = new JPanel(new BorderLayout(0, 14));
         south.setOpaque(false);
         south.add(actions, BorderLayout.NORTH);
         south.add(progress, BorderLayout.SOUTH);
         wrap.add(south, BorderLayout.SOUTH);
-
-        JScrollPane scroll = new JScrollPane(log);
-        scroll.setBorder(null);
-        JPanel logCard = card("③ 执行日志");
-        logCard.add(scroll, BorderLayout.CENTER);
-        logCard.setPreferredSize(new Dimension(100, 200));
-        wrap.add(logCard, BorderLayout.CENTER);
         return wrap;
     }
 
@@ -451,33 +935,50 @@ final class InstallerGui {
         JPanel form = new JPanel(new GridBagLayout());
         form.setOpaque(false);
         GridBagConstraints c = new GridBagConstraints();
-        c.insets = new Insets(3, 4, 3, 4);
+
+        c.insets = new Insets(1, 4, 1, 4);
         c.anchor = GridBagConstraints.WEST;
 
         addRow(form, c, 0, "游戏目录", gameDir, refresh);
-        addRow(form, c, 1, "模组来源（可选，会拷入 mods/）", modsFrom, browse(gameDir, modsFrom, "选择模组目录"));
+        addRow(form, c, 1, "模组来源（可选，会拷入 mods/）", modsFrom,
+                browse(gameDir, modsFrom, "选择模组目录"));
         // 第二重选择：目录里探测到哪些版本，就从哪些里挑。
         // 顺序是刻意的 —— 先目录、后版本，因为版本列表来自目录体检的结果。
         c.gridy = 2;
         c.gridx = 0;
         form.add(label("安装到版本"), c);
         c.gridx = 1;
-        versionBox.setPreferredSize(new Dimension(260, 26));
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 1;
+        versionBox.setPreferredSize(new Dimension(260, 30));
         form.add(versionBox, c);
         c.gridx = 2;
+        c.fill = GridBagConstraints.NONE;
+        c.weightx = 0;
         form.add(openDir, c);
         c.gridy = 3;
         c.gridx = 0;
         form.add(label("继承原版版本"), c);
         c.gridx = 1;
-        inherit.setEditable(false);
-        inherit.setBackground(new Color(0x1A, 0x1D, 0x26));
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 1;
+        inherit.setPreferredSize(new Dimension(260, 30));
         form.add(inherit, c);
         c.gridy = 4;
         c.gridx = 1;
-        JPanel checks = new JPanel(new GridLayout(1, 2));
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 1;
+
+        // 实测踩到：并排时每个只分到一半宽度，"注册到启动器（写 launcher_profiles.json
+        // 与版本定义）"这段长文字会被裁成"…与版" —— 用户看不到这个选项到底做什么。
+
+        JPanel checks = new JPanel();
         checks.setOpaque(false);
+        checks.setLayout(new BoxLayout(checks, BoxLayout.Y_AXIS));
+        registerProfile.setAlignmentX(Component.LEFT_ALIGNMENT);
+        dryRun.setAlignmentX(Component.LEFT_ALIGNMENT);
         checks.add(registerProfile);
+        checks.add(Box.createVerticalStrut(4));
         checks.add(dryRun);
         form.add(checks, c);
         card.add(form, BorderLayout.CENTER);
@@ -486,11 +987,14 @@ final class InstallerGui {
 
     private static JPanel stepTwo(JPanel env) {
         JPanel card = card("② 环境体检");
-        JScrollPane scroll = new JScrollPane(env);
-        scroll.setBorder(null);
-        scroll.setOpaque(false);
-        scroll.getViewport().setOpaque(false);
-        scroll.setPreferredSize(new Dimension(100, 150));
+        JScrollPane scroll = RoundedUi.scroll(env);
+
+        // 这个数字是被"最小窗口下 ③ 必须可见"倒推出来的，不是随手给的：
+
+        // ② + ③ 的标题，就必须把 ② 压到 ~110px 以内。
+        // 压的是"显示多少行"，不是丢信息 —— 多出来的体检行仍可滚动看到。
+        scroll.setPreferredSize(new Dimension(100, 106));
+        scroll.setMinimumSize(new Dimension(100, 70));
         card.add(scroll, BorderLayout.CENTER);
         return card;
     }
@@ -528,6 +1032,7 @@ final class InstallerGui {
         for (String note : r.notes()) {
             env.add(envLine("提示", note, WARN));
         }
+        env.add(javax.swing.Box.createVerticalGlue());
         env.revalidate();
         env.repaint();
     }
@@ -535,31 +1040,28 @@ final class InstallerGui {
     private static JPanel envLine(String key, String value, Color valueColor) {
         JPanel line = new JPanel(new BorderLayout(10, 0));
         line.setOpaque(false);
-        line.setBorder(new EmptyBorder(2, 2, 2, 2));
+        line.setBorder(new EmptyBorder(3, 2, 3, 2));
         JLabel k = new JLabel(key);
-        k.setFont(new Font("Microsoft YaHei UI", Font.BOLD, 12));
+        k.setFont(RoundedUi.font(Font.BOLD, 12));
         k.setForeground(DIM);
-        k.setPreferredSize(new Dimension(96, 18));
+        k.setPreferredSize(new Dimension(104, 18));
         JLabel v = new JLabel(value);
-        v.setFont(new Font("Microsoft YaHei UI", Font.PLAIN, 12));
+        v.setFont(RoundedUi.font(Font.PLAIN, 12));
         v.setForeground(valueColor);
         line.add(k, BorderLayout.WEST);
         line.add(v, BorderLayout.CENTER);
         return line;
     }
 
-    // ------------------------------------------------------------------ 动作
-
-    private static void runInstaller(JFrame frame, JTextArea log, JProgressBar bar, JLabel status,
-                                     String what, FusionInstaller.Options opts, boolean uninstall,
-                                     Runnable after) {
+    private static void runInstaller(JFrame frame, JTextArea log, RoundedUi.RoundedProgressBar bar,
+                                     JLabel status, String what, FusionInstaller.Options opts,
+                                     boolean uninstall, Runnable after) {
         log.append(System.lineSeparator() + "===== " + what + " =====" + System.lineSeparator());
         bar.setValue(0);
         status.setForeground(DIM);
         status.setText(what + "中…");
-        for (java.awt.Component c : new java.awt.Component[]{log, bar}) {
-            c.setEnabled(false);
-        }
+        log.setEnabled(false);
+        bar.setEnabled(false);
         new Thread(() -> {
             int code;
             try {
@@ -678,8 +1180,6 @@ final class InstallerGui {
         }, "fusion-installer-launch").start();
     }
 
-    // ------------------------------------------------------------------ 小工具
-
     private static FusionInstaller.Options collect(FusionInstaller.Options base, JTextField gameDir,
                                                    JTextField modsFrom, JTextField inherit,
                                                    JCheckBox profile, JCheckBox dryRun) {
@@ -715,7 +1215,7 @@ final class InstallerGui {
                 out.add(p.getFileName().toString());
             }
         } catch (Exception ignored) {
-            // 猜不出来就用最保守的默认值
+
         }
         return out;
     }
@@ -730,6 +1230,7 @@ final class InstallerGui {
         c.gridx = 1;
         c.fill = GridBagConstraints.HORIZONTAL;
         c.weightx = 1;
+        field.setPreferredSize(new Dimension(260, 30));
         form.add(field, c);
         c.gridx = 2;
         c.fill = GridBagConstraints.NONE;
@@ -738,7 +1239,7 @@ final class InstallerGui {
     }
 
     private static JButton browse(JTextField shown, JTextField target, String title) {
-        JButton b = secondary("浏览…");
+        JButton b = RoundedUi.button("浏览…", RoundedUi.ButtonStyle.secondary(), 13, false);
         b.addActionListener(e -> chooseDir(shown, target, title));
         return b;
     }
@@ -773,66 +1274,15 @@ final class InstallerGui {
     }
 
     private static JPanel card(String title) {
-        JPanel p = new JPanel(new BorderLayout(0, 8));
-        p.setBackground(CARD);
-        p.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(LINE),
-                new EmptyBorder(12, 14, 12, 14)));
-        JLabel t = new JLabel(title);
-        t.setFont(new Font("Microsoft YaHei UI", Font.BOLD, 14));
-        t.setForeground(TEXT);
-        p.add(t, BorderLayout.NORTH);
+        JPanel p = RoundedUi.card();
+        p.add(RoundedUi.cardTitle(title), BorderLayout.NORTH);
         return p;
     }
 
     private static JLabel label(String text) {
         JLabel l = new JLabel(text);
-        l.setFont(new Font("Microsoft YaHei UI", Font.PLAIN, 12));
+        l.setFont(RoundedUi.font(Font.PLAIN, 12));
         l.setForeground(DIM);
         return l;
     }
-
-    private static void styleCheck(JCheckBox box) {
-        box.setOpaque(false);
-        box.setForeground(DIM);
-        box.setFont(new Font("Microsoft YaHei UI", Font.PLAIN, 12));
-    }
-
-    private static JButton primary(String text, Color color) {
-        JButton b = new JButton(text);
-        b.setFont(new Font("Microsoft YaHei UI", Font.BOLD, 14));
-        b.setBackground(color);
-        b.setForeground(new Color(0x0E, 0x10, 0x16));
-        b.setFocusPainted(false);
-        b.setBorder(new EmptyBorder(10, 16, 10, 16));
-        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        b.setOpaque(true);
-        return b;
-    }
-
-    private static JButton secondary(String text) {
-        JButton b = new JButton(text);
-        b.setFont(new Font("Microsoft YaHei UI", Font.PLAIN, 13));
-        b.setBackground(new Color(0x26, 0x2B, 0x38));
-        b.setForeground(TEXT);
-        b.setFocusPainted(false);
-        b.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(LINE), new EmptyBorder(9, 12, 9, 12)));
-        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        b.setOpaque(true);
-        // 鼠标悬停高亮：安装器最容易让人觉得"卡住了"，一点即时反馈能明显减少这种错觉。
-        b.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseEntered(MouseEvent e) {
-                b.setBackground(new Color(0x33, 0x3A, 0x4C));
-            }
-
-            @Override
-            public void mouseExited(MouseEvent e) {
-                b.setBackground(new Color(0x26, 0x2B, 0x38));
-            }
-        });
-        return b;
-    }
-
 }

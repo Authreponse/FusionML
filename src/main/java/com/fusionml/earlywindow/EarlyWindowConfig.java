@@ -24,10 +24,8 @@ import java.util.Properties;
  */
 public final class EarlyWindowConfig {
 
-    /** 配置文件默认位置。 */
     public static final String CONFIG_PATH = "config/fusion-earlywindow.properties";
 
-    /** 进度显示样式。 */
     public enum ProgressStyle {
         BAR,
         RING,
@@ -56,7 +54,6 @@ public final class EarlyWindowConfig {
     public boolean enabled = true;
     public final Map<String, String> custom = new LinkedHashMap<>();
 
-    /** 从系统属性 + 配置文件装载。 */
     public static EarlyWindowConfig load() {
         EarlyWindowConfig c = new EarlyWindowConfig();
         apply(c, readConfigFile());
@@ -165,7 +162,6 @@ public final class EarlyWindowConfig {
         }
     }
 
-    /** 默认配置文件文本，首次运行会写到 {@link #CONFIG_PATH}，玩家照着改即可。 */
     public static String template() {
         return """
                 # FusionML 早期加载窗口配置

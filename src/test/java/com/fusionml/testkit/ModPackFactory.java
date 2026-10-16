@@ -29,7 +29,6 @@ import java.util.Random;
  */
 public final class ModPackFactory {
 
-    /** 生成配置。 */
     public static final class Spec {
         public int modCount = 120;
         public int minClasses = 6;
@@ -77,7 +76,7 @@ public final class ModPackFactory {
     private static void writeJar(Path target, String id, ModFormat format, boolean hybrid,
                                  int classCount, List<String> deps, Spec spec, Random rnd)
             throws IOException {
-        // 包名按"点分"书写（这才是真实模组里的写法），路径再单独换算 ——
+
         // 夹具如果自己就用斜杠写包名，就会把加载器里"名字规范化"这类 bug 一起掩盖掉。
         String pkg = "com.test." + id;
         String pkgPath = pkg.replace('.', '/');
@@ -87,7 +86,6 @@ public final class ModPackFactory {
                     ("Manifest-Version: 1.0\r\nImplementation-Version: 1." + rnd.nextInt(50)
                             + "." + rnd.nextInt(20) + "\r\n\r\n").getBytes(StandardCharsets.UTF_8), true);
 
-            // 主类
             String mainClass = pkgPath + "/Main";
             ClassEmitter main = new ClassEmitter(mainClass, "java/lang/Object")
                     .addDefaultConstructor();
@@ -99,9 +97,6 @@ public final class ModPackFactory {
             }
             zip.add(mainClass + ".class", main.build(), true);
 
-            // 普通类：带一点实现（接口、常量方法），让类体有真实体积。
-            // 第 0 号类刻意做成"可被注入的靶子"：实例方法 + 一个静态方法，
-            // 用来覆盖注入器对两种方法形状的处理。
             for (int c = 0; c < classCount; c++) {
                 ClassEmitter ce = new ClassEmitter(pkgPath + "/Helper" + c, "java/lang/Object")
                         .addInterface("java/lang/Runnable")
@@ -116,7 +111,6 @@ public final class ModPackFactory {
                 zip.add(pkgPath + "/Helper" + c + ".class", ce.build(), true);
             }
 
-            // 原生注入配置 + 注入类
             if (spec.withMixinConfig && rnd.nextDouble() < 0.35) {
                 Map<String, Object> cfg = new LinkedHashMap<>();
                 cfg.put("package", pkg + ".mixin");
@@ -134,7 +128,6 @@ public final class ModPackFactory {
                 zip.add(pkgPath + "/mixin/HelperMixin.class", mixin.build(), true);
             }
 
-            // 元数据
             writeMetadata(zip, id, format, deps, rnd);
             if (hybrid) {
                 // 多端同包：一个 jar 里同时有 Fabric 与 Forge 两套元数据。
@@ -214,7 +207,6 @@ public final class ModPackFactory {
         return sb.toString();
     }
 
-    /** 人类可读的规模描述。 */
     public static String describe(Spec spec) {
         return String.format(Locale.ROOT, "%d 个模组包，每包 %d~%d 个类，Fabric %.0f%% / Forge %.0f%% / NeoForge 其余",
                 spec.modCount, spec.minClasses, spec.maxClasses,

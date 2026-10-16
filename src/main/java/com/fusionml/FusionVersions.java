@@ -109,7 +109,7 @@ public final class FusionVersions {
         if (!v.isBlank()) {
             return v.trim();
         }
-        // 清单属性：用 Package 元数据读，读不到再退回自己解析 MANIFEST.MF。
+
         String fromManifest = readManifestTarget();
         if (fromManifest != null) {
             return fromManifest;
@@ -117,7 +117,6 @@ public final class FusionVersions {
         return readTargetFile();
     }
 
-    /** 从本 jar 的 MANIFEST.MF 里读 {@code FusionML-Target}。 */
     private static String readManifestTarget() {
         try {
             java.security.CodeSource cs = FusionVersions.class.getProtectionDomain()
@@ -142,7 +141,6 @@ public final class FusionVersions {
         }
     }
 
-    /** 读安装器旁边带的 {@code META-INF/fusionml/target.txt}。 */
     private static String readTargetFile() {
         try (java.io.InputStream in = FusionVersions.class.getClassLoader()
                 .getResourceAsStream("META-INF/fusionml/target.txt")) {
@@ -156,13 +154,11 @@ public final class FusionVersions {
         }
     }
 
-    /** 本 jar 的出厂 Java 要求；没有出厂设定返回 0。 */
     public static int packagedRequiredJava() {
         Target t = byId(packagedTarget());
         return t == null ? 0 : t.requiredJava();
     }
 
-    /** 人读的一行说明。 */
     public static String describe() {
         String packaged = packagedTarget();
         StringBuilder sb = new StringBuilder();

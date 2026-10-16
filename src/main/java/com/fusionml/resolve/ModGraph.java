@@ -26,7 +26,6 @@ import java.util.Set;
  */
 public final class ModGraph {
 
-    /** 一条问题记录。 */
     public record Problem(String modId, String message, boolean fatal) {
         @Override
         public String toString() {
@@ -34,12 +33,6 @@ public final class ModGraph {
         }
     }
 
-    /**
-     * 把问题列表压成可读的若干行。
-     *
-     * <p>整合包里"同一个 id 冲突出现几十次"是常态，逐条打印会把真正要看的那几条淹掉。
-     * 这里按 modId 归组：同一模组只展开前两条，其余折算成计数。
-     */
     public static List<String> summarize(List<Problem> problems, int maxPerMod) {
         java.util.Map<String, List<Problem>> grouped = new LinkedHashMap<>();
         for (Problem p : problems) {
@@ -59,7 +52,6 @@ public final class ModGraph {
         return out;
     }
 
-    /** 解析结果。 */
     public static final class Plan {
         public final List<ModMetadata> all;
         public final Map<String, ModMetadata> byId;
@@ -93,7 +85,6 @@ public final class ModGraph {
             return n;
         }
 
-        /** 最大层级 = 理论最短加载轮数。 */
         public int depth() {
             return tiers.size();
         }
@@ -112,7 +103,6 @@ public final class ModGraph {
         Map<String, ModMetadata> byId = new LinkedHashMap<>(Math.max(16, mods.size() * 2));
         List<ModMetadata> active = new ArrayList<>(mods.size());
 
-        // 1) 去重 + 侧过滤
         for (ModMetadata m : mods) {
             if (m.id == null || m.id.isBlank()) {
                 problems.add(new Problem(m.jarName(), "元数据缺少 modId，已跳过", false));
@@ -121,14 +111,14 @@ public final class ModGraph {
             ModMetadata exist = byId.get(m.id);
             if (exist != null) {
                 if (exist.jarIndex() == m.jarIndex()) {
-                    // 同一个 jar 的另一端元数据（多端同包）：这是同一个模组的两套声明，
+
                     // 合并进来即可，绝不能报成"两个模组抢一个 id"。
                     exist.mergeFrom(m);
                     continue;
                 }
-                // 独立安装的模组 vs 某个模组内嵌的副本：优先用独立安装的那一份。
+
                 // 否则一个把整份 Fabric API 打包进去的模组，会把玩家真正安装的 Fabric API 顶掉，
-                // 之后所有依赖它的模组都会莫名其妙出问题。
+
                 if (exist.nested && !m.nested) {
                     int idx = active.indexOf(exist);
                     if (idx >= 0) {
@@ -156,15 +146,14 @@ public final class ModGraph {
         Map<String, String> providers = new HashMap<>(provided);
         for (ModMetadata m : active) {
             providers.put(m.id, m.version);
-            // 本模组声明"顶替提供"的 id 也算已提供。
+
             // Fabric API 通过 provides 声明了几十个子模块 id，不认这个字段就会把
-            // 依赖它们的模组全部误报成"缺少必需依赖"。
+
             for (String alias : m.provides) {
                 providers.putIfAbsent(alias, m.version);
             }
         }
 
-        // 2) 依赖校验
         int n = active.size();
         Map<String, Integer> indexOf = new HashMap<>(n * 2);
         for (int i = 0; i < n; i++) {
@@ -191,7 +180,7 @@ public final class ModGraph {
                                 + (d.versionRange() == null || d.versionRange().isBlank()
                                 ? "" : "（要求 " + d.versionRange() + "）"), true));
                     } else if ("不兼容".equals(d.reason()) || "冲突".equals(d.reason())) {
-                        // breaks/conflicts 写的是"如果有就不行"，present 才处理
+
                     } else {
                         problems.add(new Problem(m.id, "可选依赖 " + depId + " 未安装", false));
                     }
@@ -215,7 +204,7 @@ public final class ModGraph {
                 }
                 Integer target = indexOf.get(depId);
                 if (target != null && target != i) {
-                    // 被依赖者先加载
+
                     if (edges.get(target).add(i)) {
                         inDegree[i]++;
                     }
@@ -276,7 +265,6 @@ public final class ModGraph {
             }
         }
 
-        // 4) 环检测：还剩下的就是环里的节点
         if (placed < n) {
             List<ModMetadata> cyclic = new ArrayList<>();
             for (int i = 0; i < n; i++) {
@@ -294,7 +282,6 @@ public final class ModGraph {
         return new Plan(active, byId, tiers, problems);
     }
 
-    /** 从环里挑出一条真实路径，方便玩家一眼看出问题出在哪。 */
     private static String findCycle(List<ModMetadata> active, List<Set<Integer>> edges, int[] deg) {
         for (int start = 0; start < active.size(); start++) {
             if (deg[start] <= 0) {

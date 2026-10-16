@@ -142,7 +142,6 @@ public class ForgePlatformAdapter implements PlatformAdapter {
         return false;
     }
 
-    /** 为注入参数准备实参。当前运行环境若没有事件总线实现，就明确报出来。 */
     private static Object[] injectionArgs(Constructor<?> ctor, ModClassLoader loader,
                                           List<String> notes, ModMetadata mod) {
         Class<?>[] params = ctor.getParameterTypes();

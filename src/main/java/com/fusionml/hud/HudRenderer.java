@@ -18,7 +18,6 @@ import java.util.Locale;
  */
 public final class HudRenderer {
 
-    // ---- 配色（ARGB）
     private static final int PANEL_BG = 0xC812121A;
     private static final int PANEL_BORDER = 0x66404A6E;
     private static final int TEXT_MAIN = 0xFFF2F4FF;
@@ -40,7 +39,6 @@ public final class HudRenderer {
     private final int[] polyX = new int[GRAPH_SAMPLES + 2];
     private final int[] polyY = new int[GRAPH_SAMPLES + 2];
 
-    /** 渲染一帧 HUD。 */
     public void render(HudBackend b, int width, int height, FpsMonitor fps, ModListModel model,
                        String query, ModFormat filter, ModListModel.Sort sort,
                        boolean showModList, int scroll) {
@@ -50,7 +48,6 @@ public final class HudRenderer {
         }
     }
 
-    /** 便捷方法：直接渲染成一张图片（用于截图验证与文档）。 */
     public BufferedImage toImage(int width, int height, FpsMonitor fps, ModListModel model,
                                  String query, ModFormat filter, ModListModel.Sort sort,
                                  boolean showModList, int scroll) {
@@ -64,8 +61,6 @@ public final class HudRenderer {
         }
         return img;
     }
-
-    // ------------------------------------------------------------------ 帧率面板
 
     private void drawFpsPanel(HudBackend b, int x, int y, FpsMonitor fps) {
         b.fillRoundRect(x, y, FPS_PANEL_W, FPS_PANEL_H, 6, PANEL_BG);
@@ -85,7 +80,6 @@ public final class HudRenderer {
         drawFrameGraph(b, x + 12, y + 60, FPS_PANEL_W - 24, 26, fps);
     }
 
-    /** 帧时间折线图：越靠上越流畅，同时标出 60/30 帧两条参考线。 */
     private void drawFrameGraph(HudBackend b, int x, int y, int w, int h, FpsMonitor fps) {
         b.fillRect(x, y, w, h, 0x33000000);
         b.line(x, y + (int) (h * 0.5), x + w, y + (int) (h * 0.5), GRID);
@@ -135,8 +129,6 @@ public final class HudRenderer {
         return String.format(Locale.ROOT, "%.1f", f);
     }
 
-    // ------------------------------------------------------------------ 模组列表
-
     private void drawModList(HudBackend b, int screenW, int screenH, ModListModel model,
                              String query, ModFormat filter, ModListModel.Sort sort, int scroll) {
         int w = Math.min(560, Math.max(380, screenW / 3));
@@ -144,7 +136,7 @@ public final class HudRenderer {
         int listTopPad = 84;                     // 从"搜索行"下方开始，避免与首行重叠
         int footerH = 26;
         List<ModListModel.Entry> rows = model.query(query, filter, sort);
-        // 面板高度随内容收缩：列表短就不留一大块空白，列表长才占满屏幕。
+
         int wanted = listTopPad + Math.min(rows.size(), 18) * rowH + footerH;
         int h = Math.min(screenH - 40, Math.max(180, wanted));
         int x = screenW - w - 10;

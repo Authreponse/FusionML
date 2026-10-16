@@ -25,7 +25,6 @@ import java.util.List;
  */
 public final class InjectionVerifier {
 
-    /** 验证结果。 */
     public record Result(int scanned, int injected, int verified, List<String> details) {
         public String summary() {
             return "扫描 " + scanned + " 个游戏类，改写 " + injected + " 个，"
@@ -67,7 +66,7 @@ public final class InjectionVerifier {
                 }
                 String internal = e.name().substring(0, e.name().length() - ".class".length());
                 if (internal.contains("$")) {
-                    continue;                       // 内部类常常依赖外部类状态，先跳过
+                    continue;                       
                 }
                 HookInjector.Hook hook = buildHookFor(bytes, internal, targets.size() / 2);
                 if (hook == null) {
@@ -133,7 +132,7 @@ public final class InjectionVerifier {
             return null;
         }
         if ((cf.accessFlags() & 0x0200) != 0) {
-            return null;                            // 接口没有方法体
+            return null;                            
         }
         for (ClassFile.Member m : cf.methods()) {
             String name = cf.utf8(m.nameIndex);
@@ -141,7 +140,7 @@ public final class InjectionVerifier {
                 continue;
             }
             if ((m.access & 0x0400) != 0 || (m.access & 0x0100) != 0) {
-                continue;                           // abstract / native
+                continue;                           
             }
             ClassFile.Attr code = cf.codeAttr(m);
             if (code == null) {
@@ -162,7 +161,7 @@ public final class InjectionVerifier {
                     }
                 }
                 if (!hasStackMap) {
-                    continue;                       // 优先挑带栈图的，尽量覆盖硬路径
+                    continue;                       
                 }
             } catch (RuntimeException e) {
                 continue;
@@ -170,7 +169,7 @@ public final class InjectionVerifier {
             boolean isStatic = (m.access & 0x0008) != 0;
             String hookDesc = HookInjector.hookDesc(internalName, desc, isStatic);
             return new HookInjector.Hook(internalName, name, desc,
-                    // 每个靶子一个独立的钩子类名：共用一个名字会让后一个覆盖前一个，
+
                     // 于是第一个靶子的 invokestatic 会解析到签名不匹配的类上，校验必然失败。
                     "com/fusionml/verify/GenHook" + index, "onEnter", hookDesc,
                     HookInjector.Point.HEAD);

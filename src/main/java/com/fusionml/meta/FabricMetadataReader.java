@@ -35,7 +35,6 @@ public final class FabricMetadataReader {
         m.description = str(root, "description", "");
         m.license = str(root, "license", "");
 
-        // authors 的两种写法都要认：字符串数组，或带 name 的对象数组。
         for (Object a : Json.arr(root.get("authors"))) {
             if (a instanceof Map<?, ?> am) {
                 Object n = am.get("name");
@@ -47,7 +46,6 @@ public final class FabricMetadataReader {
             }
         }
 
-        // 入口点：{"main": [...], "client": [...], "server": [...]}
         Map<String, Object> eps = Json.obj(root.get("entrypoints"));
         for (Map.Entry<String, Object> e : eps.entrySet()) {
             List<String> classes = new ArrayList<>(2);
@@ -85,7 +83,7 @@ public final class FabricMetadataReader {
         readDepMap(root.get("conflicts"), false, "冲突", m);
 
         // provides：本模组同时"顶替"提供的其它 modId（Fabric API 就是靠它声明一堆子模块）。
-        // 支持字符串数组，也支持 [{"id":"...","version":"..."}] 这种对象写法。
+
         for (Object item : Json.arr(root.get("provides"))) {
             if (item instanceof String s) {
                 m.provides.add(s);
@@ -96,7 +94,6 @@ public final class FabricMetadataReader {
         return m;
     }
 
-    /** 入口点条目可以是 "类名"、["类名","方法"] 或 {"value":"类名","adapter":"..."}。 */
     private static String entrypointClass(Object item) {
         if (item instanceof String s) {
             return s;
@@ -140,7 +137,6 @@ public final class FabricMetadataReader {
         return v == null ? def : v.toString();
     }
 
-    /** 供测试与报告使用：把元数据还原成 JSON 文本。 */
     public static String roundTrip(Map<String, Object> raw) {
         return Json.write(new LinkedHashMap<>(raw));
     }

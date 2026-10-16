@@ -46,7 +46,6 @@ public final class Toml {
         return root;
     }
 
-    /** 跳过空白与注释（含换行）。 */
     private void skipBlank() {
         while (p < n) {
             char c = s.charAt(p);
@@ -62,7 +61,6 @@ public final class Toml {
         }
     }
 
-    /** 只跳过行内空白。 */
     private void skipInline() {
         while (p < n && (s.charAt(p) == ' ' || s.charAt(p) == '\t')) {
             p++;
@@ -93,7 +91,7 @@ public final class Toml {
 
     @SuppressWarnings("unchecked")
     private Map<String, Object> tableHeader(Map<String, Object> root) {
-        p++;                                        // 第一个 '['
+        p++;                                        
         boolean isArray = p < n && s.charAt(p) == '[';
         if (isArray) {
             p++;
@@ -244,7 +242,7 @@ public final class Toml {
     }
 
     private String parseBasicString() {
-        p++;                                        // 开引号
+        p++;                                        
         StringBuilder sb = new StringBuilder(32);
         while (p < n) {
             char c = s.charAt(p++);
@@ -309,7 +307,7 @@ public final class Toml {
             if (c == '\\' && p < n) {
                 char e = s.charAt(p);
                 if (e == '\n' || e == '\r') {
-                    // 行尾反斜杠 = 续行（吃掉换行和随后的空白）
+
                     while (p < n && (s.charAt(p) == ' ' || s.charAt(p) == '\t'
                             || s.charAt(p) == '\r' || s.charAt(p) == '\n')) {
                         p++;
@@ -349,7 +347,7 @@ public final class Toml {
     }
 
     private List<Object> parseArray() {
-        p++;                                        // '['
+        p++;                                        
         List<Object> out = new ArrayList<>(4);
         for (;;) {
             skipBlank();
@@ -369,7 +367,7 @@ public final class Toml {
     }
 
     private Map<String, Object> parseInlineTable() {
-        p++;                                        // '{'
+        p++;                                        
         Map<String, Object> out = new LinkedHashMap<>();
         for (;;) {
             skipBlank();
@@ -462,8 +460,6 @@ public final class Toml {
         }
         return new IllegalArgumentException("TOML 解析错误：" + msg + " (第 " + line + " 行)");
     }
-
-    // ---------------------------------------------------------------- 取值助手
 
     @SuppressWarnings("unchecked")
     public static List<Map<String, Object>> tables(Map<String, Object> root, String key) {

@@ -14,7 +14,6 @@ import java.util.stream.Stream;
 /** 基准测试用的小工具集合（与正式代码分开，避免测试工具污染主源码）。 */
 public final class LoadBench {
 
-    /** 一次测量的结果。 */
     public record Run(double millis, FusionRuntime.Session session, String stageLine) {
     }
 

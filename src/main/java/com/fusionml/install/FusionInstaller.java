@@ -1,6 +1,7 @@
 package com.fusionml.install;
 
 import com.fusionml.earlywindow.EarlyWindowConfig;
+import com.fusionml.mc.McDownloader;
 import com.fusionml.util.Json;
 
 import java.io.IOException;
@@ -54,6 +55,13 @@ public final class FusionInstaller {
             printHelp();
             return;
         }
+
+        if (o.fetchVersion != null) {
+            System.exit(doFetch(o));
+        }
+        if (o.listVersions) {
+            System.exit(doListVersions(o));
+        }
         if (o.gui || (args.length == 0 && !java.awt.GraphicsEnvironment.isHeadless())) {
             InstallerGui.show(o);
             return;
@@ -76,7 +84,65 @@ public final class FusionInstaller {
         }
     }
 
-    /** 安装选项。 */
+    /**
+     * 自动拉取一个版本的游戏文件。
+     *
+     * <p>这是"空目录也能装"的关键一步：对照 Fabric / Quilt 安装器的做法 ——
+     * 它们不需要用户先用官方启动器装一遍，而是自己把服务端（或客户端）拉下来。
+     *
+     * @return 进程退出码（0 成功）
+     */
+    private static int doFetch(Options o) {
+        try {
+            McDownloader dl = new McDownloader();
+            Path dir = o.fetchDir != null ? o.fetchDir
+                    : (o.gameDir != null ? o.gameDir : Path.of("."));
+            AutoFetch.Fetched f = AutoFetch.fetch(dl, o.fetchVersion, o.fetchSide, dir,
+                    System.out::println);
+            System.out.println();
+            System.out.println("完成：" + f.info().id() + " 的" + o.fetchSide + " jar");
+            System.out.println("  文件：" + f.jar().toAbsolutePath());
+            System.out.println("  来源：" + (f.downloaded() ? "本次下载" : "复用本地文件"));
+            System.out.println("  版本类型：" + f.info().type() + "，发布于 " + f.info().releaseTime());
+            if (!o.fetchOnly) {
+
+                System.out.println();
+                System.out.println("紧接着执行安装…");
+                o.gameDir = dir;
+                if (o.inheritVersion == null || o.inheritVersion.isBlank()) {
+                    o.inheritVersion = f.info().id();
+                }
+                return install(o, System.out::println);
+            }
+            return 0;
+        } catch (Throwable t) {
+            System.out.println("拉取失败：" + t.getMessage());
+            if (o.verbose) {
+                t.printStackTrace(System.out);
+            }
+            // 失败必须是非零退出码 —— 脚本里靠它判断，不能假装成功。
+            return 3;
+        }
+    }
+
+    /** 列出官方清单里可选的版本。 */
+    private static int doListVersions(Options o) {
+        try {
+            List<String> list = AutoFetch.listVersions(new McDownloader(),
+                    o.listLimit, o.includeSnapshots);
+            for (String s : list) {
+                System.out.println("  " + s);
+            }
+            System.out.println();
+            System.out.println("共 " + list.size() + " 个"
+                    + (o.includeSnapshots ? "" : "（正式版；加 --snapshots 也看快照）"));
+            return 0;
+        } catch (Throwable t) {
+            System.out.println("读取版本清单失败：" + t.getMessage());
+            return 3;
+        }
+    }
+
     public static final class Options {
         public Path gameDir;
         public Path modsFrom;
@@ -87,7 +153,24 @@ public final class FusionInstaller {
         public boolean dryRun;
         public boolean verbose;
         public boolean gui;
-        /** 只生成一张安装界面预览图然后退出（用于复核界面，不安装任何东西）。 */
+
+        /** 要拉取的版本号；{@code latest} 表示最新正式版。非 null 时执行拉取。 */
+        public String fetchVersion;
+
+        public String fetchSide = "server";
+
+        public Path fetchDir;
+
+        public boolean fetchOnly;
+        /** 列出官方清单里的可选版本。 */
+        public boolean listVersions;
+        /** 列出版本时是否包含快照。 */
+        public boolean includeSnapshots;
+        /** 列出版本的条数上限（0 = 全部）。 */
+        public int listLimit = 30;
+
+        public boolean serverInstall;
+
         public Path shotGui;
         /** 写进启动脚本的版本 id；留空时由安装器从目录里自动判断。 */
         public String versionId = "";
@@ -106,7 +189,6 @@ public final class FusionInstaller {
             out.accept("（预演模式：只显示将要执行的动作，不写任何文件）");
         }
 
-        // 1) 标准目录结构
         InstanceLayout.EnsureResult ensured = o.dryRun
                 ? new InstanceLayout.EnsureResult(List.of("（预演）"), List.of(), gameDir)
                 : InstanceLayout.ensure(gameDir);
@@ -136,7 +218,6 @@ public final class FusionInstaller {
             }
         }
 
-        // 3) 早期窗口配置模板（已存在则保留）
         Path cfg = InstanceLayout.earlyWindowConfig(gameDir);
         if (Files.exists(cfg)) {
             out.accept("保留已有配置：" + gameDir.relativize(cfg));
@@ -162,13 +243,11 @@ public final class FusionInstaller {
             }
         }
 
-        // 5) 可选：把外部模组拷进 mods/
         if (o.modsFrom != null) {
             int copied = copyMods(o.modsFrom, gameDir.resolve("mods"), o.dryRun, out);
             out.accept("已拷入 " + copied + " 个模组包到 mods/");
         }
 
-        // 6) 启动脚本：让"放一起就能用"落到双击一个文件上。
         //    图形安装器/启动器不是所有人都用，而"双击脚本就能进游戏"是所有人都能用的方式。
         if (!o.dryRun) {
             String versionId = o.versionId != null && !o.versionId.isBlank()
@@ -181,6 +260,16 @@ public final class FusionInstaller {
             } catch (IOException e) {
                 out.accept("启动脚本生成失败（不影响安装）：" + e.getMessage());
             }
+
+            if (o.serverInstall) {
+                try {
+                    for (String extra : writeServerExtras(gameDir, out)) {
+                        manifest.add("file=" + extra);
+                    }
+                } catch (IOException e) {
+                    out.accept("服务端附加文件生成失败（不影响安装）：" + e.getMessage());
+                }
+            }
         }
 
         if (!o.dryRun) {
@@ -192,7 +281,6 @@ public final class FusionInstaller {
         return 0;
     }
 
-    /** 卸载：只删除清单里记录过的、由本安装器创建的内容。 */
     public static int uninstall(Options o, java.util.function.Consumer<String> out) throws IOException {
         Path gameDir = o.gameDir != null ? o.gameDir : InstanceLayout.detectDefaultGameDir();
         List<String> manifest = InstanceLayout.readManifest(gameDir);
@@ -231,7 +319,7 @@ public final class FusionInstaller {
             }
             out.accept("已删除：" + rel);
         }
-        // 只清理"本安装器创建的、且已空"的目录 —— 玩家数据目录（mods/saves/...）永不删除。
+
         if (!o.dryRun) {
             // 注意必须用绝对化的 root 来拼路径：gameDir 可能是相对路径，
             // 混用相对/绝对会让 startsWith(root) 校验失败，导致空目录永远清不掉。
@@ -245,12 +333,6 @@ public final class FusionInstaller {
         return 0;
     }
 
-    /**
-     * 从 {@code launcher_profiles.json} 里移除本安装器写入的那一项。
-     *
-     * <p>只删我们加的那个 key，其余内容（包括玩家的其它 profile、账号设置）原样保留。
-     * 文件读不懂时宁可不改，也不要把人家的启动器配置写坏。
-     */
     private static void removeProfileEntry(Path root, List<String> manifest, boolean dryRun,
                                            java.util.function.Consumer<String> out) throws IOException {
         String versionId = null;
@@ -379,14 +461,92 @@ public final class FusionInstaller {
         Files.writeString(cmdFile, cmd, StandardCharsets.UTF_8);
         written.add("start-game.cmd");
 
-        Path serverFile = gameDir.resolve("start-server.cmd");
-        Files.writeString(serverFile, cmd.replace("--mc-launch", "--server --mc-launch"),
-                StandardCharsets.UTF_8);
-        written.add("start-server.cmd");
-
         Path shFile = gameDir.resolve("start-game.sh");
         Files.writeString(shFile, sh, StandardCharsets.UTF_8);
         written.add("start-game.sh");
+
+        written.addAll(writeServerScripts(gameDir, loaderJar));
+        return written;
+    }
+
+    /**
+     * 服务端的启动脚本 —— 与客户端刻意不同。
+     *
+     * <p>客户端那条路（{@code --mc-launch}）是我们自己的 main 去接管启动：客户端本来就要拼
+     * classpath、要注入平台运行时，自己当启动器是合理的。服务端则相反：官方 {@code server.jar}
+     * 是一个 <b>bundler</b>（{@code Main-Class: net.minecraft.bundler.Main}），它会自己解包
+     * {@code META-INF/versions.list} 与 {@code META-INF/libraries.list} 描述的依赖，再用新的
+     * classloader 调真正的入口 {@code net.minecraft.server.Main}。再去写第二个启动器只会多一层
+     * 会过期的重复实现，而 Fabric 的安装器也正是让我们"包装它"而不是"替代它"。
+     *
+     * <p>所以这里生成的脚本仍然执行 {@code java -jar server.jar nogui}，
+     * 只在前面设一个 {@code JAVA_TOOL_OPTIONS} 把加载器作为 javaagent 挂上去。
+     * 该变量由 JVM 自己读取，因此不必改动命令行；实测 26.3 的 bundler 不 fork 子 JVM
+     * （在原 JVM 内换 classloader），所以这个通道一定会被应用到。
+     *
+     * <p>没有 {@code server.jar} 时不生成：一个指向不存在文件的脚本比没有脚本更误导人。
+     */
+    private static List<String> writeServerScripts(Path gameDir, Path loaderJar) throws IOException {
+        if (!Files.isRegularFile(gameDir.resolve(com.fusionml.mc.ServerFetch.SERVER_JAR_NAME))) {
+            return List.of();
+        }
+        try {
+            com.fusionml.mc.ServerFetch.Launchers l =
+                    com.fusionml.mc.ServerFetch.writeServerLaunchers(gameDir, loaderJar, null, 4096);
+            List<String> names = new ArrayList<>();
+            for (Path p : l.written()) {
+                names.add(gameDir.relativize(p).toString());
+            }
+            return names;
+        } catch (IOException e) {
+            return List.of();
+        }
+    }
+
+    /**
+     * 服务端安装时额外写的东西。
+     *
+     * <p>为什么单独一个方法：服务端与客户端有实质差别，把差异集中在一处比散在安装流程里好查。
+     * 这里写的是：
+     * <ul>
+     *   <li>{@code eula.txt} —— 提示用户必须自己同意 EULA。
+     *       <b>我们只写 {@code eula=false} 与说明，绝不替用户同意</b>：
+     *       那是用户与 Mojang 之间的法律约定，代点同意是不对的。</li>
+     *   <li>{@code server.properties} 的最小骨架（已存在就不动）。</li>
+     * </ul>
+     */
+    private static List<String> writeServerExtras(Path gameDir,
+                                                  java.util.function.Consumer<String> out)
+            throws IOException {
+        List<String> written = new ArrayList<>(2);
+
+        Path eula = gameDir.resolve("eula.txt");
+        if (!Files.exists(eula)) {
+            Files.writeString(eula, """
+                    # 由 FusionML 安装器生成。
+                    #
+                    # 运行 Minecraft 服务端即表示你同意 Mojang 的最终用户许可协议（EULA）：
+                    #   https://aka.ms/MinecraftEULA
+                    #
+                    # 我们**不会替你同意** —— 那是你与 Mojang 之间的约定。
+                    # 阅读上面的协议后，把下面的 false 改成 true 才能启动服务端。
+                    eula=false
+                    """, StandardCharsets.UTF_8);
+            written.add("eula.txt");
+            out.accept("已写出 eula.txt —— 启动服务端前需要你自己阅读 EULA 并改成 true");
+        }
+
+        Path props = gameDir.resolve("server.properties");
+        if (!Files.exists(props)) {
+            Files.writeString(props, """
+                    # 由 FusionML 安装器生成的最小骨架；其余项由服务端首次启动时补齐。
+                    motd=FusionML Server
+                    server-port=25565
+                    max-players=20
+                    online-mode=true
+                    """, StandardCharsets.UTF_8);
+            written.add("server.properties");
+        }
         return written;
     }
 
@@ -412,7 +572,7 @@ public final class FusionInstaller {
                     }
                 }
             } catch (IOException ignored) {
-                // 交给调用方用空 id 兜底
+
             }
         }
         return "";
@@ -523,6 +683,21 @@ public final class FusionInstaller {
                 case "--uninstall" -> o.uninstall = true;
                 case "--dry-run" -> o.dryRun = true;
                 case "--gui" -> o.gui = true;
+
+                case "--fetch" -> o.fetchVersion = need(args, ++i, "版本号");
+                case "--fetch-side" -> o.fetchSide = need(args, ++i, "server|client");
+                case "--fetch-dir" -> o.fetchDir = Path.of(need(args, ++i, "目录"));
+                case "--fetch-only" -> o.fetchOnly = true;
+                case "--server" -> o.fetchSide = "server";
+                case "--client" -> o.fetchSide = "client";
+                case "--list-versions" -> o.listVersions = true;
+                case "--snapshots" -> o.includeSnapshots = true;
+                case "--list-limit" -> o.listLimit = Integer.parseInt(need(args, ++i, "条数"));
+                case "--install-server" -> {
+                    // Fabric 风格的一步到位：拉服务端 + 装好 + 写启动脚本。
+                    o.fetchSide = "server";
+                    o.serverInstall = true;
+                }
                 case "--shot-gui" -> o.shotGui = Path.of(need(args, ++i, "输出图片"));
                 case "--verbose", "-v" -> o.verbose = true;
                 case "--help", "-h" -> {
@@ -561,6 +736,20 @@ public final class FusionInstaller {
                  --verbose, -v         出错时打印详细堆栈
                  --help, -h            显示本帮助
 
+               一键安装（自动拉取，不需要先用官方启动器装一遍）：
+                 --install-server      拉服务端 + 装好 + 写启动脚本与 eula.txt（一步到位）
+                 --fetch <版本号>      拉取指定版本；写 latest 表示最新正式版
+                 --fetch-side <s>      server（默认）或 client
+                 --fetch-dir <目录>    拉到哪个目录，默认与 --target 相同
+                 --fetch-only          只拉取，不接着安装
+                 --list-versions       列出官方清单里可选的版本
+                 --snapshots           列版本时也包含快照
+                 --list-limit <条数>   列版本的条数上限，默认 30（0 表示全部）
+
+               示例：
+                 java -jar fusion-installer.jar --install-server --target ./server --fetch 26.3
+                 java -jar fusion-installer.jar --fetch latest --fetch-side client --fetch-only
+                 java -jar fusion-installer.jar --list-versions --list-limit 10
                安装器只做“新增”：不删除、不覆盖任何已有文件；
                卸载只删除自己创建过的文件与因此变空的目录，mods/ 与 saves/ 等玩家数据永不触碰。
                 """);

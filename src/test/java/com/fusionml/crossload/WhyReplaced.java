@@ -47,12 +47,12 @@ public final class WhyReplaced {
                 PatchedBase.mcKeyOf(versionId));
         System.out.println("原版 jar：" + vanillaJar);
         System.out.println("补丁 jar：" + patchedJar);
-        // 判据要扫"对方平台的字节"，所以先把它设进上下文。
+
         PatchedBase.setPatchedJarForTest(patchedJar);
         PatchedBase.setVanillaJarForTest(vanillaJar);
-        // 对方平台**运行时包**也要给：真正按新超类使用某个类的代码
+
         //（例如 RegistryBuilder 用 MappedRegistry）住在 NeoForge 的 universal 包里，
-        // 不在打补丁的原版包里。不给的话判据会一律返回"对方没按新超类用它"。
+
         try {
             String mcKey = PatchedBase.mcKeyOf(versionId);
             var rt = ForeignRuntime.resolve(instance, "neoforge", mcKey, line -> { });
@@ -69,16 +69,13 @@ public final class WhyReplaced {
         } catch (Throwable t) {
             System.out.println("（运行时包解析失败，判据会偏保守：" + t + "）");
         }
-        // 让接口形状判据也能读到对方运行时包。
+
         System.setProperty("fusion.librariesDir",
                 instance.librariesDir().toAbsolutePath().toString());
 
         Set<String> wanted = new LinkedHashSet<>();
         for (String a : args) {
-            // cmd 会把命令行里的 $ 吃掉（`DataComponentMap$Builder` 传到 JVM 时
-            // 已经变成 `DataComponentMap`），所以额外支持一种"不带 $" 的写法：
-            // 用 `/` 当内部类分隔符（例如 net/minecraft/core/component/DataComponentMap/Builder），
-            // 由我们在这里还原成 $。
+
             wanted.add(a.replace('.', '/'));
         }
         try (FastZip vj = FastZip.open(vanillaJar); FastZip pj = FastZip.open(patchedJar)) {
@@ -87,8 +84,7 @@ public final class WhyReplaced {
                 String entry = w + ".class";
                 FastZip.Entry ve = vj.entry(entry);
                 FastZip.Entry pe = pj.entry(entry);
-                // cmd 会把命令行的 $ 吃掉，所以支持用 / 写内部类分隔符：
-                // 若按原样找不到，就把最后一段当成内部类再试一次（$ 形态）。
+
                 if (ve == null && pe == null && !w.contains("$")) {
                     int slash = w.lastIndexOf('/');
                     if (slash > 0) {
@@ -155,7 +151,7 @@ public final class WhyReplaced {
                         c = Class.forName(i.replace('/', '.'), false,
                                 WhyReplaced.class.getClassLoader());
                     } catch (Throwable ignored) {
-                        // 找不到也无所谓，下面按"读不到"处理
+
                     }
                     java.lang.reflect.Method[] ms = c == null ? new java.lang.reflect.Method[0]
                             : c.getDeclaredMethods();
@@ -175,7 +171,7 @@ public final class WhyReplaced {
                         && java.util.Objects.equals(String.join(",", v.interfaces()),
                                 String.join(",", p.interfaces()))
                         ? "保留原版" : "整类替换") + "字节");
-                // 超类变化时的决定性判据：对方平台有没有"按新超类使用"这个类。
+
                 // 有 → 必须换（否则 VerifyError）；没有 → 保留原版（保住宿主 Mixin 注入点）。
                 if (!java.util.Objects.equals(v.superName(), p.superName())) {
                     boolean needed = PatchedBase.foreignUsesAsNewSuperclassForTest(
@@ -184,7 +180,7 @@ public final class WhyReplaced {
                             + "；对方按新超类使用它=" + needed
                             + (needed ? "（必须整类换）" : "（保留原版以保住宿主注入点）"));
                     // 把判据内部过程打出来：否则只能看到一个是/否，
-                    // 分不清它是真信号（对方确实依赖新超类）还是误命中（常见方法名撞上了）。
+
                     for (String line : PatchedBase.explainSuperclassUsage(w, pj.read(pe), p)) {
                         System.out.println("      " + line);
                     }

@@ -26,7 +26,6 @@ public final class BridgeProbe {
     private BridgeProbe() {
     }
 
-    /** 把 defineClass 暴露出来，好让 JVM 真的跑一遍字节码校验。 */
     private static final class DefiningLoader extends ClassLoader {
         DefiningLoader(ClassLoader parent) {
             super(parent);
@@ -105,7 +104,7 @@ public final class BridgeProbe {
                         + "，方法 " + b.methods().length
                         + "，字段 " + b.fields().length
                         + "，接口 " + String.join("、", b.interfaces()));
-                // 关键：让 JVM 真的校验一遍。
+
                 try {
                     DefiningLoader loader = new DefiningLoader(
                             BridgeProbe.class.getClassLoader());
@@ -118,7 +117,7 @@ public final class BridgeProbe {
                     }
                     System.out.println("   JVM 校验：失败 —— " + root);
                 }
-                // 顺带看桥接是否把关键方法搬进来了
+
                 for (String probe : new String[] {"getData", "setData", "hasAttachments"}) {
                     boolean has = false;
                     for (ClassFile.Member m : b.methods()) {

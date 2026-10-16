@@ -110,7 +110,7 @@ public final class McCache {
     public Path libraryPath(McVersion.Library lib) {
         String path = lib.path();
         if (path == null || path.isBlank()) {
-            // 少数库没有 artifact 路径，用 Maven 坐标自己拼一份。
+
             String[] parts = lib.name().split(":");
             if (parts.length >= 3) {
                 path = parts[0].replace('.', '/') + "/" + parts[1] + "/" + parts[2] + "/"
@@ -120,7 +120,6 @@ public final class McCache {
         return root.resolve("libraries").resolve(path);
     }
 
-    /** 下载当前系统适用的全部依赖库。 */
     public List<Path> ensureLibraries(McVersion version, Map<String, Boolean> features,
                                       McDownloader.Progress progress) throws IOException {
         List<Path> out = new ArrayList<>();
@@ -138,7 +137,6 @@ public final class McCache {
         return out;
     }
 
-    /** 资源索引（assets/indexes/&lt;id&gt;.json）的本地路径。 */
     public Path assetIndexPath(String indexId) {
         return root.resolve("assets").resolve("indexes").resolve(indexId + ".json");
     }
@@ -157,10 +155,6 @@ public final class McCache {
         return com.fusionml.util.Json.parseObject(Files.readAllBytes(indexPath));
     }
 
-    /**
-     * 统计资源索引里缺失的对象数量（不下载，只统计）。
-     * 先给用户一个"还要下多少"的数字，比闷头下载更友好。
-     */
     public long countMissingAssets(Map<String, Object> index) {
         Map<String, Object> objects = com.fusionml.util.Json.obj(index.get("objects"));
         long missing = 0;
@@ -207,12 +201,10 @@ public final class McCache {
         return "https://resources.download.minecraft.net/";
     }
 
-    /** 原生库解压目标目录。 */
     public Path nativesDir(String versionId) {
         return root.resolve("natives").resolve(versionId);
     }
 
-    /** 空特性表（不带自定义分辨率、非演示账号）。 */
     public static Map<String, Boolean> defaultFeatures() {
         Map<String, Boolean> m = new LinkedHashMap<>();
         m.put("is_demo_user", false);

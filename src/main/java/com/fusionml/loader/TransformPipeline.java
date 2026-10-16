@@ -16,7 +16,6 @@ import java.util.Map;
  */
 public final class TransformPipeline {
 
-    /** 变换统计。 */
     public static final class Stats {
         public long inspected;
         public long transformed;
@@ -31,20 +30,13 @@ public final class TransformPipeline {
     }
 
     private final Map<String, List<HookInjector.Hook>> hooksByClass = new HashMap<>(64);
-    /**
-     * 需要"解除原版密封"的类（内部名）。
-     *
-     * <p>这是跨端加载的必要修补，起因见 {@code com.fusionml.crossload.SealedTargets}：
-     * 另一端的平台类常常是被对方平台通过"给原版打补丁加 permits"才允许存在的实现者。
-     * 名单由前置分析按"本机实际装了哪些跨端包"算出来，没装跨端包时这里是空的。
-     */
+
     private final java.util.Set<String> sealedTargets =
             java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final Stats stats = new Stats();
     private final List<String> registrationNotes = new ArrayList<>(4);
     private final java.util.Set<String> reported = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
-    /** 登记一条注入规则。 */
     public void addHook(HookInjector.Hook hook) {
         String key = hook.targetClass();
         if (key == null) {
@@ -53,12 +45,10 @@ public final class TransformPipeline {
         hooksByClass.computeIfAbsent(key, k -> new ArrayList<>(2)).add(hook);
     }
 
-    /** 登记一条说明（例如"某模组的某个注入点暂不支持"），供最终报告展示。 */
     public void addNote(String note) {
         registrationNotes.add(note);
     }
 
-    /** 登记一个需要解除密封的原版类（内部名）。 */
     public void addSealedTarget(String internalName) {
         sealedTargets.add(internalName);
     }
@@ -79,7 +69,6 @@ public final class TransformPipeline {
         return n;
     }
 
-    /** 所有被注入的目标类（内部名）。用于加载后做一次"注入自检"。 */
     public List<String> hookTargets() {
         return new ArrayList<>(hooksByClass.keySet());
     }

@@ -53,7 +53,7 @@ public final class ForgeMetadataReader {
         Map<String, List<Map<String, Object>>> depGroups = dependencyGroups(root);
         // 顶层 [[mixins]] 是 NeoForge 官方文档里的写法，[[mods.mixins]] 是另一部分模组
         // 与 Forge 的写法 —— 两种都在现实产物里出现，所以两种都读。
-        // 顶层写法对一个 jar 里的所有模组生效（现实中这种 jar 基本只有一个模组）。
+
         List<Map<String, Object>> topLevelMixins = Toml.tables(root, "mixins");
 
         for (Map<String, Object> t : modsTables) {
@@ -85,7 +85,7 @@ public final class ForgeMetadataReader {
                     m.authors.add(String.valueOf(a));
                 }
             } else if (authors != null) {
-                // 现实里常见 "A, B, C" 这种逗号分隔写法。
+
                 for (String a : authors.toString().split(",")) {
                     String s = a.trim();
                     if (!s.isEmpty()) {
@@ -120,7 +120,6 @@ public final class ForgeMetadataReader {
         return out;
     }
 
-    /** 收集 {@code [dependencies]} 下的所有分组：标签 → 依赖表列表。 */
     private static Map<String, List<Map<String, Object>>> dependencyGroups(Map<String, Object> root) {
         Map<String, List<Map<String, Object>>> groups = new java.util.LinkedHashMap<>();
         Object deps = root.get("dependencies");
@@ -166,7 +165,6 @@ public final class ForgeMetadataReader {
         }
     }
 
-    /** 处理 {@code ${file.jarVersion}} 这类占位符。 */
     private static String substituteVersion(String version, String manifestVersion) {
         if (version == null) {
             return "0";

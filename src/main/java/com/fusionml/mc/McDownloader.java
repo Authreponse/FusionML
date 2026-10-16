@@ -31,7 +31,6 @@ import java.util.HexFormat;
  */
 public final class McDownloader {
 
-    /** 下载进度回调。 */
     public interface Progress {
         void update(String what, long done, long total);
 

@@ -96,16 +96,13 @@ public final class MixinScanner {
             notes.add(cf.name() + " 的 @FusionMixin 没有写 target，已跳过");
             return 0;
         }
-        // 统一规范化：内部名里不可能出现 '.'（内部类用 '$'，数组用 '['），
-        // 所以无论写的是 com.example.Foo 还是 com/example/Foo，把所有 '.' 换成 '/' 都正确。
-        // 之前用"含斜杠就当成内部名、不再替换"的启发式，会漏掉 com/example.Foo 这种混写。
+
         String targetInternal = target.replace('.', '/');
         String mixinOwner = cf.name();
         int rules = 0;
         for (ClassFile.Member m : cf.methods()) {
             if (!"<init>".equals(cf.utf8(m.nameIndex)) && (m.access & 0x0008) != 0) {
-                // 只接受静态钩子：实例钩子需要额外的对象生命周期管理，超出当前实现范围，
-                // 直接明确跳过并说明，比"悄悄不生效"好得多。
+
                 boolean headFound = false;
                 for (ClassFile.Annotation a : cf.annotations(m.attrs)) {
                     if ("Lcom/fusionml/mixin/FusionHead;".equals(a.desc())) {

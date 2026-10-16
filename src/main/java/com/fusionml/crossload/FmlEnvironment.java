@@ -53,9 +53,8 @@ import java.util.function.Consumer;
  */
 public final class FmlEnvironment {
 
-    /** {@code auto}（默认，与补丁基座同时启用）／{@code off}。 */
     public static final String PROP_MODE = "fusion.fmlState";
-    /** 建立结果，供游戏内报告如实展示。 */
+
     public static final String PROP_DETAIL = "fusion.fmlState.detail";
 
     private static volatile boolean up;
@@ -72,7 +71,6 @@ public final class FmlEnvironment {
         return detail;
     }
 
-    /** 建好的那个 FMLLoader 实例（可能为 null）。 */
     private static volatile Object loader;
 
     /**
@@ -102,7 +100,7 @@ public final class FmlEnvironment {
                 return true;
             }
             List<String> done = new ArrayList<>(4);
-            // 1) 构造一个真实的 FMLLoader：它的私有构造器只做字段赋值，
+
             //    真正的发现/加载在 create(...) 里，那一步我们必须避开（会和宿主平台抢类加载）。
             Class<?> distClass = Class.forName("net.neoforged.api.distmarker.Dist", true, host);
             Object dist = enumConstant(distClass,
@@ -119,18 +117,18 @@ public final class FmlEnvironment {
             ctor.setAccessible(true);
             Object instance = ctor.newInstance(host, programArgs, dist, true, gameDir);
             done.add("FMLLoader 实例");
-            // 2) 挂到 current 上（它是 AtomicReference，改里面的值即可）。
+
             Field current = fmlLoader.getDeclaredField("current");
             current.setAccessible(true);
             Object ref = current.get(null);
             if (ref instanceof AtomicReference<?>) {
-                // 泛型在这条路径上没有意义：类型参数只能靠反射抹掉。
+
                 @SuppressWarnings("unchecked")
                 AtomicReference<Object> ar = (AtomicReference<Object>) ref;
                 ar.set(instance);
                 done.add("FMLLoader.current");
             }
-            // 3) 给它一个真实（但先为空）的 LoadingModList：用对方平台自己的 of(...) 建。
+
             Class<?> loadingModList = Class.forName("net.neoforged.fml.loading.LoadingModList",
                     true, host);
             Object empty = loadingModList.getMethod("of", List.class, List.class, List.class,
@@ -169,7 +167,6 @@ public final class FmlEnvironment {
         }
     }
 
-    /** 用真实的 ModList/LoadingModList 对象登记一个被我们驱动起来的模组（尽力而为）。 */
     public static Object currentLoader() {
         return loader;
     }

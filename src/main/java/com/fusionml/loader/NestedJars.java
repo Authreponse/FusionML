@@ -12,18 +12,15 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 
-// Jar-in-Jar（嵌套 jar）的发现与提取。
-//
 // 这不是"锦上添花"的功能，而是现代模组生态的刚需：Fabric API 一个包里塞了约 150 个
-// 嵌套模块 jar（fabric-api-base、fabric-lifecycle-events-v1 …），c2me 这类模组也一样。
+
 // 不读嵌套 jar，加载器就会把依赖这些子模块的模组全部误报成"缺少必需依赖"——
-// 而玩家明明把 fabric-api 装好了。
-//
+
 // 实现选择"提取到缓存目录"而不是"全程在内存里"：
 //   * 嵌套 jar 必须能出现在 JVM 的类路径上（游戏启动时就要确定），而类路径只认文件，
-//     所以无论如何都要有落盘的一份；
+
 //   * 按内容 SHA1 去重并缓存，多个模组打包同一个库时只存一份、只解一次；
-//   * 提取是幂等的：父进程（构建启动计划）与子进程（加载模组）都调用，
+
 //     第二次直接命中缓存，几乎不花时间。
 public final class NestedJars {
 
@@ -48,7 +45,7 @@ public final class NestedJars {
     public static Result extract(List<Path> outerJars, Path cacheDir, List<String> notes) {
         // 用有序集合去重：多个外层模组常常打包同一个库（例如一堆模组都用同版本的
         // night-config），按内容哈希缓存后它们指向同一个文件；如果不去重，
-        // 同一个模组会被登记多次，接着被误报成"modId 冲突"。
+
         java.util.Set<Path> dedup = new java.util.LinkedHashSet<>();
         int[] extracted = {0};
         int[] reused = {0};
@@ -66,7 +63,7 @@ public final class NestedJars {
                 collectFrom(zip, jar.getFileName().toString(), cacheDir, dedup, extracted, reused,
                         notes, 0);
             } catch (IOException e) {
-                // 外层包读不了的问题会在别的阶段被报告，这里不重复刷屏。
+
             }
         }
         return new Result(new ArrayList<>(dedup), extracted[0], reused[0], notes);
@@ -104,7 +101,7 @@ public final class NestedJars {
                 extracted[0]++;
             }
             out.add(target);
-            // 嵌套里还可能有嵌套（罕见但合法），继续往里看一层。
+
             try (FastZip inner = FastZip.open(data, label + "!" + e.name())) {
                 collectFrom(inner, label + "!" + shortName(e.name()), cacheDir, out, extracted,
                         reused, notes, depth + 1);

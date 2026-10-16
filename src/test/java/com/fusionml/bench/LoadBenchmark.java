@@ -119,7 +119,6 @@ public final class LoadBenchmark {
                     w, o.millis(), base / o.millis()));
         }
 
-        // 最后完整跑一遍并打印完整报告，用来核对正确性（模组数、依赖、注入、报告格式）。
         System.out.println();
         System.out.println("======== 完整报告（自动并行度）========");
         try (FusionRuntime.Session s = load(modsDir, 0, register)) {

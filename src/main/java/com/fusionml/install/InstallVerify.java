@@ -32,13 +32,12 @@ public final class InstallVerify {
     private InstallVerify() {
     }
 
-    /** 一道验证的结论。 */
     public enum Level {
-        /** 通过。 */
+
         OK,
         /** 通过但有需要注意的地方（例如可以用，但某个功能不可用）。 */
         WARN,
-        /** 不通过：不要继续。 */
+
         FAIL;
 
         public String symbol() {
@@ -58,13 +57,11 @@ public final class InstallVerify {
         }
     }
 
-    /** 一条检查项。 */
     public record Item(String name, Level level, String detail) {
     }
 
-    /** 一道验证的完整结果。 */
     public record Result(String title, Level overall, java.util.List<Item> items) {
-        /** 能否继续安装。 */
+
         public boolean canContinue() {
             return overall != Level.FAIL;
         }
@@ -81,8 +78,6 @@ public final class InstallVerify {
             return sb.toString();
         }
     }
-
-    // ------------------------------------------------------------------ 第一道：目录
 
     /**
      * 第一道验证：这到底是不是一个可用的 Minecraft 游戏目录。
@@ -151,8 +146,6 @@ public final class InstallVerify {
         return new Result("第一道：目录校验", overall, items);
     }
 
-    // ------------------------------------------------------------------ 第二道：版本
-
     /**
      * 第二道验证：用户挑的这个版本能不能被本加载器接管。
      *
@@ -183,7 +176,6 @@ public final class InstallVerify {
         }
         items.add(new Item("版本目录", Level.OK, versionDir.toString()));
 
-        // 完整性：json 与 jar 缺一不可。
         Path json = versionDir.resolve(versionId + ".json");
         Path jar = versionDir.resolve(versionId + ".jar");
         boolean hasJson = Files.isRegularFile(json);
@@ -216,7 +208,6 @@ public final class InstallVerify {
             }
         }
 
-        // **最关键的判据**：游戏包的命名空间。
         if (hasJar) {
             Namespace ns = probeNamespace(jar);
             switch (ns) {
@@ -253,15 +244,12 @@ public final class InstallVerify {
         return new Result("第二道：版本校验", overall, items);
     }
 
-    // ------------------------------------------------------------------ 内部
-
-    /** 命名空间探测结果。 */
     public enum Namespace {
-        /** 真名：可以直接合并。 */
+
         DEOBFUSCATED,
         /** 混淆：需要 remap 层。 */
         OBFUSCATED,
-        /** 读不出来。 */
+
         UNKNOWN
     }
 
@@ -296,7 +284,7 @@ public final class InstallVerify {
                     bare++;
                 }
                 if (total > 4000) {
-                    break;                        // 够判断了就停，不必读完
+                    break;                        
                 }
             }
             if (bare > mc) {
@@ -347,7 +335,7 @@ public final class InstallVerify {
                 n++;
             }
         } catch (Throwable ignored) {
-            // 读不了就当 0
+
         }
         return n;
     }

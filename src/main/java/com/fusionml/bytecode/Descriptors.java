@@ -14,7 +14,6 @@ public final class Descriptors {
     private Descriptors() {
     }
 
-    /** 返回参数类型列表，例如 {@code (Ljava/lang/String;I)V} → [Ljava/lang/String;, I]。 */
     public static List<String> paramTypes(String desc) {
         List<String> out = new ArrayList<>(4);
         int i = 1;
@@ -34,13 +33,11 @@ public final class Descriptors {
         return out;
     }
 
-    /** 返回返回类型，例如 {@code (I)V} → {@code V}。 */
     public static String returnType(String desc) {
         int i = desc.lastIndexOf(')');
         return desc.substring(i + 1);
     }
 
-    /** 类型占用的局部变量槽位数（long/double 占 2）。 */
     public static int slots(String type) {
         char c = type.charAt(type.length() - 1);
         return (c == 'J' || c == 'D') ? 2 : 1;
@@ -72,18 +69,17 @@ public final class Descriptors {
         }
         char first = internalOrPrimitive.charAt(0);
         if (first == '[') {
-            return internalOrPrimitive;                 // 数组描述符
+            return internalOrPrimitive;                 
         }
         if (internalOrPrimitive.length() == 1) {
-            return internalOrPrimitive;                 // 基本类型
+            return internalOrPrimitive;                 
         }
         if (first == 'L' && internalOrPrimitive.endsWith(";")) {
-            return internalOrPrimitive;                 // 已经是对象描述符
+            return internalOrPrimitive;                 
         }
         return "L" + internalOrPrimitive + ";";
     }
 
-    /** 生成方法描述符。 */
     public static String methodDesc(List<String> params, String ret) {
         StringBuilder sb = new StringBuilder(32);
         sb.append('(');
@@ -94,7 +90,6 @@ public final class Descriptors {
         return sb.toString();
     }
 
-    /** 生成字段描述符。 */
     public static String fieldDesc(String type) {
         return toDescriptor(type);
     }

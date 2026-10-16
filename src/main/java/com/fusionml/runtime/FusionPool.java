@@ -94,7 +94,7 @@ public final class FusionPool implements AutoCloseable {
                     runSafely(task);
                     continue;
                 }
-                // 空闲路径：先自旋（保住 L1 状态、延迟最低），再让出，最后定时 park。
+
                 if (idleSpins < SPIN_LIMIT) {
                     counters.incrementAndGet(IDX_SPINS);
                     Thread.onSpinWait();
@@ -176,7 +176,7 @@ public final class FusionPool implements AutoCloseable {
             return;
         }
         global.add(task);
-        // 唤醒可能正在 park 的 worker。
+
         for (Worker wk : workers) {
             if (wk.getState() == Thread.State.WAITING || wk.getState() == Thread.State.TIMED_WAITING) {
                 LockSupport.unpark(wk);

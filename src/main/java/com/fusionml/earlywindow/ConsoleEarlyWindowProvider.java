@@ -1,6 +1,5 @@
 package com.fusionml.earlywindow;
 
-/** 内置的控制台早期窗口提供者，永远可用（服务器与 CI 的兜底）。 */
 public final class ConsoleEarlyWindowProvider implements EarlyWindowProvider {
 
     @Override

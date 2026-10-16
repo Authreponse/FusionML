@@ -51,8 +51,7 @@ public final class ClassShape {
             }
             ClassFile cf = ClassFile.read(z.read(e));
             System.out.println("== " + internal);
-            // 常量池自检：最大索引与 javap 对得上吗？
-            // 解析一旦错位，后面所有 name/desc 索引都会是垃圾值
+
             //（实测：attachments 的 nameIndex 读成 25966，而该 CP 只有 ~292 项）。
             int maxIdx = 0;
             for (int i = 1; i < 65536; i++) {

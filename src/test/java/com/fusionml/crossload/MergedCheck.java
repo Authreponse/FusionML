@@ -43,8 +43,7 @@ public final class MergedCheck {
         String versionId = System.getProperty("fusion.version", "26.3-Fabric 0.19.5");
         Path vanillaJar = instance.resolve(versionId).clientJar;
         Path patchedJar = PatchedBase.locate(instance, "neoforge", PatchedBase.mcKeyOf(versionId));
-        // 传 "latest" 就自动挑最新的合并产物 —— 合并包路径里有中文和空格，
-        // 在 cmd 命令行上传递会被弄坏，所以让工具自己去找。
+
         Path merged;
         if ("latest".equalsIgnoreCase(args[0])) {
             Path dir = instance.gameDir().resolve(".fusionml").resolve("base");

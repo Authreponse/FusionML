@@ -38,7 +38,6 @@ final class Ref {
         }
     }
 
-    /** 加载并初始化（用于查询静态状态）。 */
     static Class<?> clsInit(ClassLoader loader, String name) {
         try {
             return Class.forName(name, true, loader);
@@ -63,7 +62,6 @@ final class Ref {
         }
     }
 
-    /** 把异常链压成一行，便于日志阅读。 */
     static String describe(Throwable t) {
         StringBuilder sb = new StringBuilder(96);
         Throwable cur = t;
@@ -82,7 +80,6 @@ final class Ref {
         return sb.toString();
     }
 
-    /** 按参数个数与可赋值性挑一个方法。 */
     static Method method(Class<?> c, String name, Class<?>... params) {
         for (Class<?> k = c; k != null; k = k.getSuperclass()) {
             for (Method m : k.getDeclaredMethods()) {
@@ -105,7 +102,6 @@ final class Ref {
         return null;
     }
 
-    /** 参数类型逐个"能接受"才算匹配；null 视为任意。 */
     private static boolean accepts(Class<?>[] formals, Class<?>[] actuals) {
         for (int i = 0; i < formals.length; i++) {
             Class<?> a = actuals[i];
@@ -169,7 +165,6 @@ final class Ref {
         }
     }
 
-    /** 调用静态方法。 */
     static Object callStatic(Class<?> owner, String name, Class<?>[] types, Object... args) {
         Method m = method(owner, name, types);
         if (m == null) {
@@ -194,7 +189,6 @@ final class Ref {
         return new IllegalStateException(t.toString(), t);
     }
 
-    /** 按可赋值性挑一个构造器并调用。 */
     static Object construct(Class<?> c, Object... args) throws Exception {
         Constructor<?> best = null;
         for (Constructor<?> ctor : c.getDeclaredConstructors()) {
@@ -248,13 +242,12 @@ final class Ref {
                 f.setAccessible(true);
                 return f;
             } catch (NoSuchFieldException ignored) {
-                // 继续往父类找
+
             }
         }
         return null;
     }
 
-    /** 读一个 public static 字段（含父类的）。 */
     static Object staticField(Class<?> c, String name) {
         Field f = field(c, name);
         try {
@@ -264,7 +257,6 @@ final class Ref {
         }
     }
 
-    /** 列出所有 public static 非基本类型字段的值（用来枚举内置注册表）。 */
     static Map<String, Object> staticFieldsOfType(Class<?> c, Class<?> type) {
         Map<String, Object> out = new LinkedHashMap<>(64);
         for (Field f : c.getFields()) {
@@ -277,13 +269,12 @@ final class Ref {
                     out.put(f.getName(), v);
                 }
             } catch (Throwable ignored) {
-                // 拿不到就跳过
+
             }
         }
         return out;
     }
 
-    /** 把接口用动态代理实现出来；未显式处理的方法返回该返回类型的"空值"。 */
     static Object proxy(ClassLoader loader, Class<?> iface, InvocationHandler handler) {
         return Proxy.newProxyInstance(loader, new Class<?>[]{iface}, (p, m, a) -> {
             Object r = handler.invoke(p, m, a);
@@ -291,7 +282,6 @@ final class Ref {
         });
     }
 
-    /** 空值语义：Optional.empty / 空集合 / 空 Map / 0 / false / null。 */
     static Object emptyValue(Class<?> type, String methodName) {
         if (type == Optional.class) {
             return Optional.empty();

@@ -50,7 +50,7 @@ public final class CpCountProbe {
             }
             System.setProperty("fusion.foreignRuntimeJars", sb.toString());
         } catch (Throwable ignored) {
-            // 尽力而为
+
         }
 
         for (String a : args) {
@@ -69,8 +69,7 @@ public final class CpCountProbe {
                 System.out.println("   原版：可读最大索引=" + maxIndex(v)
                         + "，cpSlotCount=" + v.extraCpStats()[2]);
                 // 关键：原版的**最后一个可用槽位**是不是就是 cpSlotCount-1？
-                // 如果最后一个常量是 long/double（占两槽），cpSlotCount-1 可能是"空洞"，
-                // 而我们就可能把新项分配到了那个空洞上 —— 这正是
+
                 // "ClassFormatError: bad constant pool index" 的典型成因。
                 System.out.println("   原版最后 4 个常量：");
                 for (int i = Math.max(1, maxIndex(v) - 3); i <= maxIndex(v) + 2; i++) {
@@ -84,7 +83,7 @@ public final class CpCountProbe {
                     System.out.println("   拼接未产出");
                     continue;
                 }
-                // 直接从**原始字节**里读 constant_pool_count，不从解析结果读。
+
                 int rawCount = ((out[8] & 0xFF) << 8) | (out[9] & 0xFF);
                 ClassFile r = ClassFile.read(out);
                 int maxIdx = maxIndex(r);
@@ -97,7 +96,7 @@ public final class CpCountProbe {
                         ? "   ✓ 计数一致" : "   ✗ 计数不一致（差 " + (rawCount - maxIdx - 1) + "）");
                 // 关键问题：属性名索引是不是超出了可读范围？
                 // `ClassFormatError: Attribute name has bad constant pool index N` 说明
-                // 某处写了一个 >= count 的索引 —— 也就是"分配了但没写进去"的那一项。
+
                 int bad = 0;
                 for (ClassFile.Member m : r.methods()) {
                     for (ClassFile.Attr at : m.attrs) {
@@ -121,7 +120,7 @@ public final class CpCountProbe {
                 }
                 System.out.println(bad == 0 ? "   ✓ 属性名索引都在范围内"
                         : "   ✗ 有 " + bad + " 处属性名索引越界");
-                // 把产物写到盘上，交给 javap 复核 —— 我们自己的解析器说没问题、
+
                 // 但 JVM 说 index 170 坏，那就必须用一个**独立实现**再看一遍。
                 Path dump = Path.of("build", "cp-probe-" + internal.replace('/', '_') + ".class");
                 Files.write(dump, out);

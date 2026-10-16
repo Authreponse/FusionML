@@ -36,7 +36,7 @@ public final class ConsoleEarlyWindow implements EarlyWindow {
     @Override
     public void stage(String stage, double fraction) {
         this.stage = stage;
-        // 阶段切换时打一行实打实的日志，这样在 CI 日志里也能看清每一阶段耗时。
+
         System.out.printf("%-24s %5.1f%%   已用 %.2fs%n", stage, fraction * 100,
                 (System.nanoTime() - startNanos) / 1e9);
         lastPrintedPercent = -1;
@@ -84,6 +84,6 @@ public final class ConsoleEarlyWindow implements EarlyWindow {
 
     @Override
     public void close() {
-        // 控制台实现无需释放资源。
+
     }
 }

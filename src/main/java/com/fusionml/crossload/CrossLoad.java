@@ -39,7 +39,6 @@ public final class CrossLoad {
     private CrossLoad() {
     }
 
-    /** 打到控制台的前缀：与前置分析保持一致的风格，便于日志里一眼分辨。 */
     private static void say(String line) {
         System.out.println("[FusionML/跨端] " + line);
     }
@@ -65,20 +64,14 @@ public final class CrossLoad {
         }
     }
 
-    /**
-     * 挂载点：{@code Minecraft#run} / {@code MinecraftServer#runServer} 的入口 ——
-     * 也就是"原版引导已经走完、游戏主循环刚要开始"。
-     *
-     * <p>一次性把三件事做完：构造跨端模组 → 发出注册表事件 → 补上生命周期事件。
-     */
     public static void onGameReady(Object self) {
         if (bootstrapped) {
             return;
         }
         bootstrapped = true;
-        // 第一行无条件打出来：这条日志本身就是"挂载点真的被调用了"的证据。
+
         // 之前那次排查就是卡在"到底进没进来"上 —— 没有这行，日志里既没有成功也没有失败，
-        // 只能靠猜。
+
         say("挂载点已进入（" + (self == null ? "?" : self.getClass().getSimpleName())
                 + "），跨端模组包属性 = " + System.getProperty("fusion.foreignModJars", "（未设置）"));
         try {
@@ -95,15 +88,14 @@ public final class CrossLoad {
                 say("拿不到宿主平台的类加载器，跨端驱动跳过");
                 return;
             }
-            // 对方平台的运行时（API / 事件总线）在这一刻才登记进宿主类路径。
+
             // 更早登记会让跨端模组的 Mixin 插件在配置阶段就"看得见 FML 的类"，
             // 从而在平台还没初始化时调用它 —— 那是启动崩溃，不是警告（详见桥里的注释）。
             List<Path> runtime = CrossPlatformBridge.foreignRuntime();
             if (!runtime.isEmpty() && Boolean.parseBoolean(
                     System.getProperty("fusion.fmlEarly", "false"))) {
                 // 前置分析阶段（原版引导之前）就已经登记过了 —— 因为类路径里放的是
-                // 对方平台补丁过的原版字节，这些字节在定义时就要解析对方的类型。
-                // 再登记一次没有意义，重复加同一份 jar 只会让类路径变长。
+
                 say("跨端运行时 " + runtime.size() + " 个已在前置阶段登记（补丁原版字节需要）");
             } else if (!runtime.isEmpty()) {
                 int ok = CrossPlatformBridge.addToHostClassPath(runtime);
@@ -179,12 +171,10 @@ public final class CrossLoad {
         return out;
     }
 
-    /** 给别处（HUD、报告）用的一行结论。 */
     public static String summary() {
         return System.getProperty("fusion.crossload.summary", "");
     }
 
-    /** 便于单测/诊断：当前是否已经驱动过。 */
     public static boolean driven() {
         return ForeignModLoader.installed();
     }

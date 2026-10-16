@@ -22,7 +22,6 @@ import java.util.Map;
  */
 public final class ModListModel {
 
-    /** 列表里的一个模组。 */
     public static final class Entry {
         public final ModMetadata meta;
         /** 加载层次，从 1 开始；同一层内并行加载。 */
@@ -31,7 +30,7 @@ public final class ModListModel {
         public boolean fatal;
         public int dependencyCount;
         public int dependentCount;
-        /** 该模组是否携带原生注入配置。 */
+
         public boolean hasInjections;
 
         Entry(ModMetadata meta, int tier) {
@@ -55,7 +54,6 @@ public final class ModListModel {
             return meta.format();
         }
 
-        /** 一行状态摘要，显示在列表右侧。 */
         public String status() {
             if (fatal) {
                 return "有错误";
@@ -73,10 +71,9 @@ public final class ModListModel {
         }
     }
 
-    /** 汇总统计。 */
     public record Stats(int total, Map<ModFormat, Integer> byFormat, int problemMods,
                         int totalDependencies, int totalClasses, int tiers, long jarBytes) {
-        /** 某一端有多少个模组。菜单据此决定"要不要显示这个分组"。 */
+
         public int count(ModFormat f) {
             return byFormat.getOrDefault(f, 0);
         }
@@ -93,14 +90,13 @@ public final class ModListModel {
         }
     }
 
-    /** 排序方式。 */
     public enum Sort {
-        /** 有问题的排最前，然后按名称。 */
+
         PROBLEM_FIRST(Comparator.comparing((Entry e) -> !e.fatal).thenComparing(Entry::name)),
-        /** 按加载层次，再按名称。 */
+
         TIER(Comparator.comparingInt((Entry e) -> e.tier).thenComparing(Entry::name)),
         NAME(Comparator.comparing(Entry::name)),
-        /** 被依赖最多的排前面（这些通常就是核心前置）。 */
+
         DEPENDENTS(Comparator.comparingInt((Entry e) -> -e.dependentCount).thenComparing(Entry::name));
 
         final Comparator<Entry> comparator;
@@ -118,7 +114,6 @@ public final class ModListModel {
         this.stats = stats;
     }
 
-    /** 从一次加载会话构建列表。 */
     public static ModListModel from(FusionRuntime.Session session) {
         Map<String, Integer> tierOf = new LinkedHashMap<>();
         List<List<ModMetadata>> tiers = session.plan.tiers;
@@ -203,7 +198,6 @@ public final class ModListModel {
         return out;
     }
 
-    /** 生成一段纯文本列表，供命令行使用（与界面同样的过滤逻辑）。 */
     public String toText(String query, ModFormat platform, Sort sort, int limit) {
         StringBuilder sb = new StringBuilder(1024);
         sb.append(String.format(Locale.ROOT, "%-28s %-12s %-9s %-6s %-6s %s%n",
@@ -227,10 +221,6 @@ public final class ModListModel {
         return sb.toString();
     }
 
-    /**
-     * 按显示宽度截断字符串：中日韩全角字符算两格。
-     * 这是"对齐"能真正对齐的前提 —— 直接用 length() 会让中英混排的列表歪掉。
-     */
     static String trim(String s, int width) {
         if (s == null) {
             return "";
@@ -245,7 +235,6 @@ public final class ModListModel {
         return s;
     }
 
-    /** 全角判定：把常见 CJK 区段按两格宽度处理。 */
     static int charWidth(char c) {
         if (c == 0) {
             return 0;
@@ -259,7 +248,6 @@ public final class ModListModel {
         return 1;
     }
 
-    /** 计算显示宽度（列对齐用）。 */
     public static int displayWidth(String s) {
         int w = 0;
         for (int i = 0; i < s.length(); i++) {

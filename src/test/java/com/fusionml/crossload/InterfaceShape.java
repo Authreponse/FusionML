@@ -93,7 +93,7 @@ public final class InterfaceShape {
                             : "有抽象方法 —— 对方模组很可能真的依赖它"));
                     break;
                 } catch (Throwable t) {
-                    // 换下一个 jar
+
                 }
             }
             if (!found) {

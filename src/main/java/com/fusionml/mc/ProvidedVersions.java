@@ -11,13 +11,12 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 // 探测"当前环境到底提供了哪些东西、各自是什么版本"。
-//
+
 // 为什么必须探测而不是写死：加载器要靠这些版本号去校验模组声明的依赖
 // （例如某个模组写着 fabricloader >=0.19.5）。如果加载器自以为装的是 0.15.11，
 // 就会把一堆本来没问题的模组报成"依赖版本不满足"——这类误报比真正的缺依赖更烦人，
 // 因为它会让人去改根本没坏的东西。
-//
-// 探测来源都是本地权威数据，不靠猜：
+
 //   * Minecraft 版本：客户端 jar 内部的 version.json（官方自己写的，最准）
 //   * 加载器版本：libraries 下对应 Maven 目录名（目录名就是版本号）
 //   * Java 版本：当前运行时
@@ -81,7 +80,7 @@ public final class ProvidedVersions {
                 }
             }
         } catch (IOException ignored) {
-            // 读不了就当没装
+
         }
         if (best != null) {
             out.put(key, best);

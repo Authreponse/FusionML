@@ -11,23 +11,20 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
 
-/**
- * FusionML 命令行入口。
- *
- * <p>提供四类能力：
- * <ul>
- *   <li>{@code 报告}：完整加载一次并打出可读报告（默认行为）；</li>
- *   <li>{@code 列表}：以表格形式查看模组列表，支持搜索/过滤/排序（与 HUD 用同一套逻辑）；</li>
- *   <li>{@code 截图}：把 FPS 面板与模组列表渲染成 PNG，无图形界面环境也能跑；</li>
- *   <li>{@code 预览}：打开实时窗口，可搜索、过滤、排序、滚动、导出。</li>
- * </ul>
- */
 public final class FusionLauncher {
 
     public static void main(String[] args) {
         Options o = new Options();
         try {
             if (!parse(args, o)) {
+                return;
+            }
+            if (o.listMcVersions) {
+                listMcVersions(o);
+                return;
+            }
+            if (o.fetchServer) {
+                fetchServer(o);
                 return;
             }
             if (o.mcDir != null) {
@@ -55,7 +52,7 @@ public final class FusionLauncher {
             if (!o.earlyWindowEnabled) {
                 o.earlyWindowConfig.enabled = false;
             }
-            // 截图模式下不要把窗口真的弹出来 —— 截图是离屏渲染的，弹窗只会干扰。
+
             if (o.shot != null || o.shotEarlyWindow != null) {
                 o.earlyWindowConfig.enabled = false;
             }
@@ -117,7 +114,7 @@ public final class FusionLauncher {
             img = renderer.toImage(width, height, fps, model, o.query, o.filter, o.sort, true, 0);
             long dt = System.nanoTime() - t0;
             if (i >= warmup) {
-                // 把每帧的真实渲染耗时累加成一条单调时间轴喂给采样器。
+
                 clock += dt;
                 fps.frame(clock);
             }
@@ -134,12 +131,6 @@ public final class FusionLauncher {
                 model.stats().total(), model.stats().totalClasses());
     }
 
-    /**
-     * 离屏渲染早期窗口的一张"定妆照"。
-     *
-     * <p>内容和真实运行时一致（阶段名、进度、用时、日志尾行都取自本次真实加载），
-     * 只是把窗口画到图片上，因此没有图形界面的机器也能核对外观。
-     */
     private static void renderEarlyWindowShot(Options o, FusionRuntime.Session session)
             throws Exception {
         com.fusionml.earlywindow.EarlyWindowConfig cfg = o.earlyWindowConfig;
@@ -167,11 +158,120 @@ public final class FusionLauncher {
     }
 
     /**
-     * "接入 Minecraft"模式：直接对着一个现成的游戏目录工作。
+     * 列出 Mojang 官方清单里的版本（{@code --list-mc-versions}）。
      *
-     * <p>所有写操作都只落在<b>游戏目录内</b>（原生库、清单、配置），
-     * 共享的 libraries/ 与 assets/ 只读复用，绝不改动。
+     * <p>存在的意义是让"我要装哪个版本"变成一个**看得见**的选择，而不是让用户
+     * 去猜一个版本号然后撞 "找不到版本"。
      */
+    private static void listMcVersions(Options o) throws Exception {
+        com.fusionml.mc.McDownloader dl = new com.fusionml.mc.McDownloader();
+        System.out.println("官方版本清单：" + com.fusionml.mc.ServerFetch.MANIFEST_URL);
+        System.out.println();
+        for (String line : com.fusionml.mc.ServerFetch.listVersions(dl, o.listLimit,
+                o.includeSnapshots)) {
+            System.out.println(line);
+        }
+        if (!o.includeSnapshots) {
+            System.out.println();
+            System.out.println("（只列正式版。加 --snapshots 可一并列出快照与旧预览版。）");
+        }
+    }
+
+    /**
+     * 命令行拉取服务端 jar（{@code --fetch-server}）。
+     *
+     * <p>这是"对照 Fabric 安装器"补齐的那一步：不需要用户先去官方启动器里点一遍，
+     * 直接从 Mojang 的公开数据把服务端 jar 拉到目标目录并做 SHA1 校验。
+     *
+     * <p>三条行为是刻意的：
+     * <ul>
+     *   <li><b>先本地后清单</b>：目标目录里已有版本定义时，那份 json 里就写着
+     *       {@code downloads.server}，读它不发网络请求、离线可用；</li>
+     *   <li><b>校验不过就是失败</b>：{@link com.fusionml.mc.McDownloader} 会删掉坏文件重下，
+     *       最终仍不通过就抛错，绝不留下一个"看着在、其实是坏的"jar；</li>
+     *   <li><b>失败要说清下一步</b>：网络不通时给出可操作的建议，而不是一句"下载失败"。</li>
+     * </ul>
+     */
+    private static void fetchServer(Options o) throws Exception {
+        Path dir = Path.of(o.serverDir != null && !o.serverDir.isBlank() ? o.serverDir : ".");
+        dir = dir.toAbsolutePath().normalize();
+        String versionId = o.fetchServerVersion;
+        System.out.println("目标目录    : " + dir);
+        System.out.println("目标版本    : " + versionId);
+        System.out.println();
+
+        // 目标目录里如果就是一个版本目录，instance 就能用它的版本定义当本地来源。
+        com.fusionml.mc.McInstance instance = Files.isDirectory(dir)
+                ? com.fusionml.mc.McInstance.open(dir) : null;
+        if (instance != null) {
+            System.out.println("游戏根目录  : " + instance.root());
+            System.out.println("游戏运行目录: " + instance.gameDir()
+                    + (instance.isolated() ? "（版本隔离布局）" : ""));
+        }
+        System.out.println();
+
+        com.fusionml.mc.McDownloader dl = new com.fusionml.mc.McDownloader();
+        com.fusionml.mc.ServerFetch.Result r;
+        try {
+            r = com.fusionml.mc.ServerFetch.fetch(dl, instance, versionId,
+                    o.officialVersion, dir, System.out::println);
+        } catch (java.io.IOException e) {
+            System.out.println();
+            System.out.println("拉取失败：" + e.getMessage());
+            if (o.verbose) {
+                e.printStackTrace(System.out);
+            }
+            System.exit(2);
+            return;
+        }
+
+        System.out.println();
+        System.out.println("---- 结果 ----");
+        System.out.println("服务端 jar  : " + r.file());
+        System.out.println("文件大小    : " + Files.size(r.file()) + " 字节");
+        System.out.println("SHA1        : " + com.fusionml.mc.McDownloader.sha1Of(r.file()));
+        System.out.println("期望 SHA1   : " + r.jar().sha1());
+        System.out.println("地址来源    : " + r.jar().source().text());
+        System.out.println("是否新下载  : " + (r.downloaded() ? "是" : "否（复用了校验通过的本地文件）"));
+        if (r.jar().javaMajor() > 0) {
+            System.out.println("Java 要求   : " + r.jar().javaMajor());
+        }
+        System.out.println();
+        System.out.println("这个 jar 是**原版服务端**。要带模组平台启动，请把它放进对应版本的版本目录，"
+                + "再用 --mc-dir/--mc-version --server --mc-launch 启动。");
+
+        if (o.writeServerScript) {
+            // 把"满足这个版本要求的 java"解析出来写进脚本。
+            // 本机实测 PATH 上的 java 是 21，而 26.3 要 25 —— 写死 "java" 会让脚本
+            // 以 UnsupportedClassVersionError 结束，而那条报错完全看不出是 java 选错了。
+            Path javaExe = null;
+            try {
+                com.fusionml.launch.JavaFinder.Found found =
+                        com.fusionml.launch.JavaFinder.find(r.jar().javaMajor());
+                if (found != null) {
+                    javaExe = found.javaExe();
+                    System.out.println("将写入脚本的 Java：" + javaExe + "（Java " + found.major() + "）");
+                } else {
+                    System.out.println("警告：没有找到满足 Java " + r.jar().javaMajor()
+                            + " 的运行时，脚本将退回使用 PATH 上的 java。");
+                }
+            } catch (Throwable t) {
+                System.out.println("警告：Java 探测失败（脚本将退回 PATH 上的 java）：" + t);
+            }
+            com.fusionml.mc.ServerFetch.Launchers ls =
+                    com.fusionml.mc.ServerFetch.writeServerLaunchers(dir, selfJar(),
+                            r.file().getFileName().toString(), o.memoryMb, javaExe);
+            System.out.println();
+            System.out.println("---- 启动脚本 ----");
+            for (Path p : ls.written()) {
+                System.out.println("已生成：" + p);
+            }
+            for (String n : ls.notes()) {
+                System.out.println("  · " + n);
+            }
+        }
+    }
+
     private static void runMcMode(Options o) throws Exception {
         Path dir = Path.of(o.mcDir);
         if (!Files.isDirectory(dir)) {
@@ -330,7 +430,7 @@ public final class FusionLauncher {
             // 加载器侧的类必须来自父加载器（同一份）。
             check(loader, "org.objectweb.asm.ClassReader", false);
             check(loader, "org.apache.logging.log4j.LogManager", false);
-            // 模组类（从 mods 目录里挑一个真实存在的）。
+
             for (Path mod : modJars) {
                 String sample = firstClassOf(mod);
                 if (sample != null && index.containsKey(sample)) {
@@ -348,8 +448,7 @@ public final class FusionLauncher {
             boolean fromUs = c.getClassLoader() == loader;
             String who = fromUs ? "由我们定义" : "委派给父加载器";
             // 注意：加载器侧的类落地在哪一侧是**环境决定**的（先父后己）。
-            // 真实游戏 JVM 里 asm/log4j 在 JVM 类路径上 → 委派；精简环境里没有 → 我们自己定义。
-            // 所以这里只在"游戏/模组类被委派出去"时才报错——那才是真正的缺陷。
+
             boolean bad = !fromUs && expectSelfDefined;
             System.out.println((bad ? "  ✗ " : "  ✓ ") + name + " → " + who
                     + (bad ? "（游戏/模组类不应委派给父加载器）" : ""));
@@ -360,7 +459,6 @@ public final class FusionLauncher {
         }
     }
 
-    /** 取一个 jar 里的第一个类名（内部名），用于模组类的取样。 */
     private static String firstClassOf(Path jar) {
         try (com.fusionml.util.FastZip zip = com.fusionml.util.FastZip.open(jar)) {
             for (com.fusionml.util.FastZip.Entry e : zip.entries()) {
@@ -369,7 +467,7 @@ public final class FusionLauncher {
                 }
             }
         } catch (Exception ignored) {
-            // 忽略
+
         }
         return null;
     }
@@ -460,7 +558,7 @@ public final class FusionLauncher {
                 return p;
             }
         } catch (Exception ignored) {
-            // 落到下面的兜底
+
         }
         Path fallback = Path.of("build", "fusion-ml.jar");
         return Files.isRegularFile(fallback) ? fallback.toAbsolutePath() : null;
@@ -468,7 +566,7 @@ public final class FusionLauncher {
 
     private static final class Options {
         String modsDir = "mods";
-        /** 指定后进入"接入 Minecraft"模式：直接操作一个现成的游戏目录。 */
+
         String mcDir;
         String mcVersion;
         boolean mcList;
@@ -478,6 +576,18 @@ public final class FusionLauncher {
         boolean clSelfTest;
         boolean mixinScan;
         boolean skipMods;
+        /** 列出 Mojang 官方清单里的版本。 */
+        boolean listMcVersions;
+        boolean includeSnapshots;
+        int listLimit = 25;
+
+        boolean fetchServer;
+        String serverDir;
+        String fetchServerVersion = "latest-release";
+        /** 官方清单里的版本号；留空则从 --fetch-server-version 的前缀推断。 */
+        String officialVersion;
+        /** 拉取后顺带生成 Fabric 形态的服务端启动脚本。 */
+        boolean writeServerScript;
         int memoryMb = 4096;
         boolean list;
         boolean server;
@@ -510,6 +620,28 @@ public final class FusionLauncher {
                 case "--mc-check" -> o.mcCheck = true;
                 case "--cl-selftest" -> o.clSelfTest = true;
                 case "--mixin-scan" -> o.mixinScan = true;
+                case "--list-mc-versions" -> {
+                    o.listMcVersions = true;
+                    o.mcDir = o.mcDir != null ? o.mcDir : ".";
+                }
+                case "--snapshots" -> o.includeSnapshots = true;
+                case "--list-limit" -> o.listLimit = Integer.parseInt(next(args, ++i, "条数"));
+                case "--fetch-server" -> {
+                    o.fetchServer = true;
+                    // 版本号既可以直接跟在 --fetch-server 后面，也可以用 --server-version 单独给。
+                    // 两种写法都支持是因为"装最新正式版"最常用，不该被逼着多打一个参数。
+                    if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
+                        o.fetchServerVersion = args[++i];
+                    }
+                }
+                case "--server-version" -> o.fetchServerVersion = next(args, ++i, "版本号");
+                case "--server-dir" -> {
+                    o.serverDir = next(args, ++i, "目录");
+
+                    o.mcDir = o.mcDir != null ? o.mcDir : o.serverDir;
+                }
+                case "--official-version" -> o.officialVersion = next(args, ++i, "版本号");
+                case "--write-server-script" -> o.writeServerScript = true;
                 case "--mc-boot" -> o.mcBoot = true;
                 case "--mc-launch" -> o.mcLaunch = true;
                 case "--skip-mods" -> o.skipMods = true;
@@ -602,6 +734,16 @@ public final class FusionLauncher {
                  --list-early-windows 列出所有可用的早期窗口实现
                  --write-ew-config    写出早期窗口配置模板到 config/ 供修改
                  --server             按服务端侧解析依赖（side=SERVER）
+                 ── 服务端：拉取与安装 ──
+                 --list-mc-versions   列出 Mojang 官方清单里的可安装版本
+                 --snapshots          列表/安装时也包含快照
+                 --list-limit <条数>   列表最多显示多少条，默认 25（0=全部）
+                 --fetch-server [版本] 拉取服务端 jar（默认最新正式版；也可写 26.3 / latest-snapshot）
+                 --server-version <版本>  指定要拉取的服务端版本号
+                 --server-dir <目录>   服务端 jar 的落地目录，默认当前目录
+                 --official-version <版本> 官方清单里的版本号（默认从版本名前缀推断，如 "26.3-..." → 26.3）
+                 --write-server-script  同时生成 Fabric 形态的 start-server.cmd/.sh
+                                        （官方 server.jar 启动 + 加载器以 javaagent 挂载）
                  --no-register        只做加载与索引，不实例化模组主类
                  --workers <线程数>    手动指定并行度，默认按 CPU 拓扑自动决定
                  --verbose, -v        出错时打印详细堆栈

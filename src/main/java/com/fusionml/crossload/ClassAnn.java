@@ -43,13 +43,11 @@ public final class ClassAnn {
     public record Ann(String desc, String elementType, String className, String memberName,
                       Map<String, Object> values) {
 
-        /** 取字符串元素（不存在或类型不符时返回 null）。 */
         public String str(String key) {
             Object v = values.get(key);
             return v instanceof String s ? s : null;
         }
 
-        /** 取数组元素里的字符串（单个字符串也接受）。 */
         public List<String> strList(String key) {
             Object v = values.get(key);
             List<String> out = new ArrayList<>(2);
@@ -69,7 +67,6 @@ public final class ClassAnn {
     private ClassAnn() {
     }
 
-    /** 扫描一个包，返回"类名 → 该类（含其成员）上的注解"。类名为点号形式。 */
     public static Map<String, List<Ann>> scanJar(Path jar, Consumer<String> warn) {
         Map<String, List<Ann>> out = new LinkedHashMap<>();
         try (ZipFile zip = new ZipFile(jar.toFile())) {
@@ -103,12 +100,11 @@ public final class ClassAnn {
         return out;
     }
 
-    /** 读取一个类文件的全部注解（类 / 字段 / 方法）。 */
     public static List<Ann> readAnnotations(byte[] b) {
         Reader r = new Reader(b);
-        r.u4();                                  // magic
-        r.u2();                                  // minor
-        r.u2();                                  // major
+        r.u4();                                  
+        r.u2();                                  
+        r.u2();                                  
 
         int cpCount = r.u2();
         String[] utf8 = new String[cpCount];
@@ -132,9 +128,9 @@ public final class ClassAnn {
                 default -> throw new IllegalStateException("未知常量池标签 " + tag);
             }
         }
-        r.u2();                                  // access
+        r.u2();                                  
         int thisClass = r.u2();
-        r.u2();                                  // super
+        r.u2();                                  
         int ifaces = r.u2();
         for (int i = 0; i < ifaces; i++) {
             r.u2();
@@ -185,7 +181,6 @@ public final class ClassAnn {
         }
     }
 
-    /** 读一个 element_value（JVMS 4.7.16.1）。 */
     private static Object elementValue(Reader r, String[] utf8) {
         int tag = r.u1();
         return switch (tag) {
@@ -195,13 +190,13 @@ public final class ClassAnn {
             case 'J' -> r.u2const();
             case 's' -> utf8[r.u2()];
             case 'e' -> {
-                r.u2();                          // 枚举类型
-                yield utf8[r.u2()];              // 常量名
+                r.u2();                          
+                yield utf8[r.u2()];              
             }
             case 'c' -> utf8[r.u2()];
             case '@' -> {
                 Map<String, Object> nested = new LinkedHashMap<>(2);
-                r.u2();                          // 注解类型
+                r.u2();                          
                 int pairs = r.u2();
                 for (int p = 0; p < pairs; p++) {
                     String key = utf8[r.u2()];
@@ -221,12 +216,10 @@ public final class ClassAnn {
         };
     }
 
-    /** 只读不解释的游标。 */
     private static final class Reader {
         private final byte[] b;
         private int p;
 
-        /** 常量池下标（读出来还要到池里查真实值，所以先记为"待解"）。 */
         private final Map<Integer, Object> pending = new HashMap<>(8);
 
         Reader(byte[] b) {
@@ -246,7 +239,6 @@ public final class ClassAnn {
                     | ((b[p++] & 0xFF) << 8) | (b[p++] & 0xFF);
         }
 
-        /** 元素值里指向常量池的索引：当前只用于数值类型，统一按 int 返回。 */
         Object u2const() {
             return u2();
         }

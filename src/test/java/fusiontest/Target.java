@@ -1,6 +1,5 @@
 package fusiontest;
 
-/** 被注入的靶子类。刻意写成带分支与循环，这样 javac 会生成 StackMapTable，用来验证偏移平移的正确性。 */
 public class Target {
     public static int calls = 0;
 

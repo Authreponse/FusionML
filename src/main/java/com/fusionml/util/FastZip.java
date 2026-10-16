@@ -44,7 +44,6 @@ public final class FastZip implements Closeable {
     private static final int METHOD_STORED = 0;
     private static final int METHOD_DEFLATED = 8;
 
-    /** 中央目录里的一个条目。 */
     public record Entry(String name, int method, long compressedSize, long size,
                         long crc, long localHeaderOffset) {
         public boolean isDirectory() {
@@ -66,7 +65,7 @@ public final class FastZip implements Closeable {
 
     private final Path path;
     private final FileChannel channel;
-    /** 内存中的包（嵌套 jar 用）：非 null 时 channel 为 null。 */
+
     private final byte[] memory;
     private final List<Entry> entries;
     private final Map<String, Entry> byName;
@@ -97,15 +96,14 @@ public final class FastZip implements Closeable {
             }
             ByteBuffer eocd = readAt(ch, eocdOffset, 22);
             eocd.order(ByteOrder.LITTLE_ENDIAN);
-            eocd.getInt();                        // 签名
-            eocd.getShort();                      // 磁盘号
-            eocd.getShort();                      // 中央目录起始磁盘
+            eocd.getInt();                        
+            eocd.getShort();                      
+            eocd.getShort();                      
             int entriesOnDisk = eocd.getShort() & 0xFFFF;
             int totalEntries = eocd.getShort() & 0xFFFF;
             long cdSize = eocd.getInt() & 0xFFFFFFFFL;
             long cdOffset = eocd.getInt() & 0xFFFFFFFFL;
 
-            // ZIP64：字段被写成全 1 时，去 ZIP64 定位器里找真值。
             boolean zip64 = totalEntries == 0xFFFF || cdOffset == 0xFFFFFFFFL || cdSize == 0xFFFFFFFFL;
             if (zip64 && eocdOffset >= 20) {
                 ByteBuffer loc = readAt(ch, eocdOffset - 20, 20);
@@ -116,7 +114,7 @@ public final class FastZip implements Closeable {
                     ByteBuffer e64 = readAt(ch, eocd64Offset, 56);
                     e64.order(ByteOrder.LITTLE_ENDIAN);
                     if (e64.getInt() == SIG_EOCD64) {
-                        e64.getLong();                       // 记录长度
+                        e64.getLong();                       
                         e64.getShort();
                         e64.getShort();
                         e64.getInt();
@@ -132,11 +130,11 @@ public final class FastZip implements Closeable {
                 throw new IOException("中央目录条目数异常: " + totalEntries);
             }
             if (entriesOnDisk != totalEntries) {
-                // 分卷包不支持，但单卷包里这两个值一般相等；不等也按 totalEntries 读。
+
                 totalEntries = Math.max(totalEntries, entriesOnDisk);
             }
             List<Entry> list = parseCentralDirectory(ch, cdOffset, cdSize, totalEntries);
-            // 同名条目在真实 jar 里几乎一定是打包事故，但它会让"取到哪一个"变成隐性的随机行为。
+
             // 这里显式记下来交给上层提示用户，而不是默默取最后一个。
             List<String> dups = null;
             Map<String, Integer> seen = new HashMap<>(list.size() * 2);
@@ -202,7 +200,6 @@ public final class FastZip implements Closeable {
         return -1;
     }
 
-    /** 内存版中央目录解析（与文件版同构，只是数据源不同）。 */
     private static List<Entry> parseCentralDirectoryInMemory(byte[] cd, int cdOffset, int cdSize,
                                                              int count) throws IOException {
         List<Entry> out = new ArrayList<>(count);
@@ -241,7 +238,7 @@ public final class FastZip implements Closeable {
     }
 
     private static long findEocd(FileChannel ch, long size) throws IOException {
-        int maxTail = (int) Math.min(size, 66_000L);   // 22 + 最大注释 65535
+        int maxTail = (int) Math.min(size, 66_000L);   
         if (maxTail < 22) {
             return -1;
         }
@@ -266,8 +263,7 @@ public final class FastZip implements Closeable {
             throws IOException {
         List<Entry> out = new ArrayList<>(count);
         if (cdSize > 0 && cdSize <= (64L << 20)) {
-            // 快路径：一次系统调用把整个中央目录读进堆，再纯内存遍历。
-            // 典型模组包的中央目录只有几十 KB ~ 几 MB，这一步几乎不花时间。
+
             ByteBuffer buf = readAt(ch, cdOffset, (int) cdSize);
             buf.order(ByteOrder.LITTLE_ENDIAN);
             byte[] cd = new byte[(int) cdSize];
@@ -278,7 +274,7 @@ public final class FastZip implements Closeable {
                     throw new EOFException("中央目录被截断，第 " + i + " 条");
                 }
                 if (leInt(cd, p) != SIG_CENTRAL) {
-                    // 中央目录可能带数字签名等附加块，遇到非条目标志就停止。
+
                     break;
                 }
                 int method = leShort(cd, p + 10);
@@ -309,7 +305,7 @@ public final class FastZip implements Closeable {
             }
             return out;
         }
-        // 慢路径（超大中央目录，罕见）：逐条定位读。
+
         long pos = cdOffset;
         for (int i = 0; i < count; i++) {
             ByteBuffer head = readAt(ch, pos, 46);
@@ -341,7 +337,6 @@ public final class FastZip implements Closeable {
         return out;
     }
 
-    /** 解析 ZIP64 扩展字段（id=0x0001），返回 [size, compSize, localOffset]（按实际存在的前缀）。 */
     private static long[] parseZip64Extra(byte[] cd, int off, int len) {
         int p = off;
         int end = off + len;
@@ -412,12 +407,10 @@ public final class FastZip implements Closeable {
         return byName.get(name);
     }
 
-    /** 这个包里有重名的条目名（正常情况下应为空）。 */
     public List<String> duplicateNames() {
         return duplicateNames;
     }
 
-    /** 数据区在文件中的绝对偏移：跳过本地文件头（30 字节固定 + 文件名 + 扩展字段）。 */
     private long dataOffset(Entry e) throws IOException {
         if (memory != null) {
             int off = (int) e.localHeaderOffset();
@@ -457,13 +450,6 @@ public final class FastZip implements Closeable {
         return out;
     }
 
-    /**
-     * 原样读出条目的<b>压缩数据</b>（不解压）。
-     *
-     * <p>给"整份搬运一个包"用：把 40MB 的游戏 jar 重建成"原版 + 少量覆盖"时，
-     * 逐个解压再压缩要十几秒，而原样搬压缩数据就是纯内存拷贝，一秒级。
-     * 配合 {@link FastZipWriter#addRaw} 使用。</p>
-     */
     public byte[] readRaw(Entry e) throws IOException {
         if (e.compressedSize() > Integer.MAX_VALUE - 8) {
             throw new IOException("条目过大: " + e.name());
@@ -497,7 +483,6 @@ public final class FastZip implements Closeable {
         return trimmed;
     }
 
-    /** 把条目的 [targetOff, targetOff+len) 解到 dst 的 dstOff 处，返回实际写入字节数。 */
     private int readInto(Entry e, byte[] dst, int dstOff, int len) throws IOException {
         if (len <= 0) {
             return 0;
@@ -559,7 +544,6 @@ public final class FastZip implements Closeable {
         }
     }
 
-    /** 内存包的读取路径：数据已经在数组里，不需要任何系统调用。 */
     private int readIntoMemory(Entry e, byte[] dst, int dstOff, int len) throws IOException {
         int off = (int) dataOffset(e);
         if (e.method() == METHOD_STORED) {

@@ -23,9 +23,8 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.TYPE)
 public @interface FusionMixin {
-    /** 被注入的目标类（内部名或点号名都行）。 */
+
     String target();
 
-    /** 优先级，数值小的先执行。多个 mixin 命中同一方法时用来定序。 */
     int priority() default 1000;
 }

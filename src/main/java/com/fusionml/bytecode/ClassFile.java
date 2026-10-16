@@ -45,13 +45,12 @@ public final class ClassFile {
     public static final int CP_MODULE = 19;
     public static final int CP_PACKAGE = 20;
 
-    /** 一个常量池项。utf8 只在 tag==1 时有效。 */
     public static final class Cp {
         public final int tag;
         public final int a;
         public final int b;
         public final String utf8;
-        /** 该项在常量池里的原始字节（含 tag），用于原样搬运数值型常量。 */
+
         final byte[] raw;
 
         Cp(int tag, int a, int b, String utf8) {
@@ -72,11 +71,9 @@ public final class ClassFile {
         }
     }
 
-    /** 属性的原始区间引用。 */
     public record Attr(int nameIndex, int offset, int length) {
     }
 
-    /** 字段或方法。rawStart/rawEnd 覆盖 access_flags..属性区结束。 */
     public static final class Member {
         public final int index;
         public final boolean method;
@@ -125,7 +122,7 @@ public final class ClassFile {
     private final List<byte[]> extraCp = new ArrayList<>();
     private final Map<String, Integer> extraCpCache = new HashMap<>();
     private final Map<Integer, byte[]> methodOverride = new HashMap<>();
-    /** 需要丢弃的类级属性名；null 表示原样搬运。 */
+
     private java.util.Set<String> droppedClassAttrs;
 
     private ClassFile(byte[] data, int minor, int major, Cp[] cp, int cpSlotCount, int cpRawStart,
@@ -171,7 +168,7 @@ public final class ClassFile {
         int i = 1;
         while (i < cpCount) {
             int tag = data[p] & 0xFF;
-            int entryStart = p;            // 含 tag，供"原样搬运"用
+            int entryStart = p;            
             p++;
             switch (tag) {
                 case CP_UTF8 -> {
@@ -190,7 +187,7 @@ public final class ClassFile {
                     cp[i] = new Cp(tag, u4i(data, p), u4i(data, p + 4), null,
                             java.util.Arrays.copyOfRange(data, entryStart, p + 8));
                     p += 8;
-                    i++;                       // 占两个槽位
+                    i++;                       
                 }
                 case CP_CLASS, CP_STRING, CP_METHODTYPE, CP_MODULE, CP_PACKAGE -> {
                     cp[i] = new Cp(tag, u2(data, p), 0, null,
@@ -287,8 +284,6 @@ public final class ClassFile {
                 classAttrRawStart, classAttrRawEnd, classAttrs);
     }
 
-    // ---------------------------------------------------------------- 查询
-
     public int major() {
         return major;
     }
@@ -331,7 +326,6 @@ public final class ClassFile {
         return c == null ? null : utf8(c.a);
     }
 
-    /** 内部名，例如 {@code com/example/MyMod}。 */
     public String name() {
         return className(thisClass);
     }
@@ -375,7 +369,6 @@ public final class ClassFile {
         return utf8(a.nameIndex());
     }
 
-    /** 找到方法的 Code 属性，没有则返回 null。 */
     public Attr codeAttr(Member m) {
         for (Attr a : m.attrs) {
             if ("Code".equals(attrName(a))) {
@@ -389,17 +382,14 @@ public final class ClassFile {
         return data;
     }
 
-    /** 类自身的属性表。 */
     public Attr[] classAttributes() {
         return classAttrs;
     }
 
-    /** 类级注解（{@code RuntimeVisibleAnnotations}）。 */
     public List<Annotation> classAnnotations() {
         return annotations(classAttrs);
     }
 
-    /** 一条注解：类型描述符 + 元素值。 */
     public record Annotation(String desc, Map<String, Object> values) {
         public String str(String key, String def) {
             Object v = values.get(key);
@@ -445,7 +435,6 @@ public final class ClassFile {
         return out;
     }
 
-    /** 读取一个 element_value；cursor[0] 会被更新到下一个元素的位置。 */
     private Object readElementValue(int[] cursor) {
         int p = cursor[0];
         int tag = data[p++] & 0xFF;
@@ -481,7 +470,7 @@ public final class ClassFile {
                 return s;
             }
             case '@' -> {
-                // 嵌套注解：跳过类型与元素对
+
                 int q = p + 2;
                 int pairs = u2(data, q);
                 q += 2;
@@ -514,8 +503,6 @@ public final class ClassFile {
         }
     }
 
-    // ---------------------------------------------------------------- 追加常量池
-
     public int addUtf8(String s) {
         String key = "U:" + s;
         Integer hit = extraCpCache.get(key);
@@ -525,7 +512,7 @@ public final class ClassFile {
         ByteOut o = new ByteOut(s.length() + 3);
         o.u1(CP_UTF8);
         int startLen = o.size();
-        o.u2(0);                                   // 长度占位
+        o.u2(0);                                   
         int written = o.mutf8(s);
         byte[] raw = o.toByteArray();
         raw[startLen] = (byte) (written >>> 8);
@@ -599,7 +586,7 @@ public final class ClassFile {
     private int allocate(byte[] encoded) {
         int idx = cpSlotCount + extraCpSlots;
         extraCp.add(encoded);
-        // long(5) / double(6) 占两个槽位
+
         int tag = encoded[0] & 0xFF;
         extraCpSlots += (tag == CP_LONG || tag == CP_DOUBLE) ? 2 : 1;
         return idx;
@@ -608,7 +595,6 @@ public final class ClassFile {
     /** 追加项已经占用的槽位数（不是项数：long/double 算 2）。 */
     private int extraCpSlots;
 
-    /** 原样追加一个常量池项（用于数值型常量：搬运时不需要理解它的内容）。 */
     int addRawCp(byte[] encoded) {
         String key = "R:" + java.util.Arrays.toString(encoded);
         Integer hit = extraCpCache.get(key);
@@ -675,7 +661,6 @@ public final class ClassFile {
         return addRawCp(o.toByteArray());
     }
 
-    /** 用新的属性区替换某个方法的属性区（用于改写 Code）。 */
     public void overrideMethodAttributes(int methodIndex, byte[] attributeBlob) {
         methodOverride.put(methodIndex, attributeBlob);
     }
@@ -695,8 +680,7 @@ public final class ClassFile {
         switch (c.tag) {
             case CP_UTF8:
                 return target.addUtf8(c.utf8);
-            // 数值型常量（int/float/long/double）原样搬运：
-            // 我们不需要理解它的值，只需要让目标类里有一份一模一样的项。
+
             case CP_INT:
             case CP_FLOAT:
             case CP_LONG:
@@ -718,13 +702,11 @@ public final class ClassFile {
             case CP_FIELDREF:
             case CP_METHODREF:
             case CP_IFACEMETHODREF: {
-                // 结构是 (class_index, name_and_type_index)。
-                //
+
                 // 注意这里**要解两层**：c.a 是"指向 Class 项的索引"，不是 UTF8 索引。
-                // 一开始写成了 utf8(c.a)（等于 cp(c.a).utf8），而 Class 项的 utf8 字段是 null，
+
                 // 于是整项导入失败。实测表现：拼接报
-                //   "常量池项 1033（tag=10，内容 tag10(7,1032)）无法导入目标类"
-                // —— 数字看着像越界，其实是解码层级错了。
+
                 ClassFile.Cp cls = cp(c.a);
                 Cp nt = cp(c.b);
                 if (cls == null || nt == null) {
@@ -746,7 +728,7 @@ public final class ClassFile {
                 String d = utf8(c.a);
                 return d == null ? null : target.addMethodType(d);
             }
-            // MethodHandle：结构是 (reference_kind u1, reference_index u2)。
+
             // invokedynamic 的 bootstrap 参数里会引用它（实测 tag15(6,280) = REF_invokeStatic）。
             case CP_METHODHANDLE: {
                 int kind = c.a;
@@ -762,16 +744,13 @@ public final class ClassFile {
                 o.u1(CP_METHODHANDLE).u1(kind).u2(newRef);
                 return target.addRawCp(o.toByteArray());
             }
-            // invokedynamic：结构是 (bootstrap_method_attr_index, name_and_type_index)。
-            //
+
             // 支持它是必须的：对方的方法体里只要有 lambda / 字符串拼接，
             // 就带 invokedynamic。实测 AttachmentHolder.validateAttachmentType
-            // 因此搬不进来，桥接卡住，报
-            //   "常量池项 58（tag=18）无法导入目标类"。
-            //
+
             // 注意 bootstrap_method_attr_index 指的是**类的 BootstrapMethods 属性**里的下标，
             // 而那个属性在我们的目标类里是原版的那份 —— 所以不能直接照抄下标，
-            // 得把源类的对应 bootstrap 条目也追加到目标类，然后写新下标。
+
             case CP_INVOKEDYNAMIC: {
                 Cp nt = cp(c.b);
                 if (nt == null) {
@@ -785,18 +764,15 @@ public final class ClassFile {
                 return target.addInvokeDynamic(n, d, this, c.a);
             }
             default:
-                // 方法句柄 / 动态调用 / 模块 / 包：结构更复杂，先不支持。
-                // 返回 null 会让调用方放弃整次搬运 —— 这是刻意的保守选择。
+
                 return null;
         }
     }
 
-    /** 追加一个方法（常量池索引已在本类里就位），raw 覆盖 access_flags..属性区结束。 */
     public void addMethodRaw(byte[] raw) {
         addedMethods.add(raw);
     }
 
-    /** 追加一个字段（raw 覆盖 access_flags..属性区结束）。 */
     public void addFieldRaw(byte[] raw) {
         addedFields.add(raw);
     }
@@ -826,7 +802,6 @@ public final class ClassFile {
         return addRawCp(o.toByteArray());
     }
 
-    /** 从源类复制第 {@code srcIndex} 个 bootstrap 条目，返回它在目标类里的新下标。 */
     private int appendBootstrapFrom(ClassFile source, int srcIndex) {
         try {
             byte[] srcAttr = source.bootstrapMethodsRaw();
@@ -837,13 +812,13 @@ public final class ClassFile {
             if (srcIndex < 0 || srcIndex >= n) {
                 return -1;
             }
-            // 逐条走过前 srcIndex 条，拿到目标条目的区间
+
             int p = 2;
             int entryStart = -1;
             int entryEnd = -1;
             for (int i = 0; i < n; i++) {
                 int start = p;
-                p += 2;                                   // bootstrap_method_ref
+                p += 2;                                   
                 int argc = u2(srcAttr, p);
                 p += 2 + argc * 2;
                 if (i == srcIndex) {
@@ -854,7 +829,7 @@ public final class ClassFile {
             if (entryStart < 0) {
                 return -1;
             }
-            // 把这一条的字节导进目标类（其中的常量池索引要重写）
+
             int[] map = new int[source.cpSlotCount];
             java.util.Arrays.fill(map, -1);
             byte[] entry = java.util.Arrays.copyOfRange(srcAttr, entryStart, entryEnd);
@@ -874,7 +849,6 @@ public final class ClassFile {
 
     private List<byte[]> bootstrapExtra;
 
-    /** 本类 {@code BootstrapMethods} 属性的数据区（没有则 null）。 */
     byte[] bootstrapMethodsRaw() {
         for (Attr a : classAttrs) {
             if ("BootstrapMethods".equals(utf8(a.nameIndex()))) {
@@ -893,7 +867,6 @@ public final class ClassFile {
 
     private final List<byte[]> addedFields = new ArrayList<>();
 
-    /** 追加一个接口（已存在则忽略）。 */
     public void addInterface(String internal) {
         if (!addedInterfaces.contains(internal)) {
             addedInterfaces.add(internal);
@@ -902,18 +875,13 @@ public final class ClassFile {
 
     private final List<String> addedInterfaces = new ArrayList<>();
 
-    /**
-     * 把一个成员从源类导入本类，返回**可直接追加**的原始字节（常量池已重写）。
-     *
-     * <p>供"超类桥接"使用：要把对方超类的字段与方法原样搬进原版类。
-     */
     public byte[] importMemberForBridge(ClassFile target, Member member) {
         // 注意 receiver 是**源类**、参数是**目标类** —— 与 importMemberBody 一致。
-        //
+
         // 踩过一次：这里写成了 `source.importMemberBody(this, member)`，
-        // 于是语义整个反了（把目标当源、把源当目标），
+
         // 表现是"常量池索引 25966 超出映射表范围（长度 1596）" ——
-        // 25966 来自 Level 的成员，而 1596 是 Level 的常量池大小，
+
         // 说明两边角色互换了。这种错误在字节码层不会报"参数错"，只会报一个看似无关的越界。
         return importMemberBody(target, member);
     }
@@ -940,7 +908,7 @@ public final class ClassFile {
         try {
             byte[] code = source.codeOf(member);
             if (code == null) {
-                return true;                      // 没有 Code（抽象方法）：无需预扫
+                return true;                      
             }
             int[] map = new int[source.cpSlotCount];
             java.util.Arrays.fill(map, -1);
@@ -1037,19 +1005,14 @@ public final class ClassFile {
         return ConstantPoolTransplant.lastReason;
     }
 
-    /** 原始类文件字节（只读，供诊断工具定位属性与指令）。 */
     public byte[] rawBytes() {
         return data;
     }
 
-    /** 供诊断工具读 u4（本包内已有同名方法，这里给外部用）。 */
     public static int u4iPublic(byte[] b, int p) {
         return u4i(b, p);
     }
 
-    // ------------------------------------------------------- 超类桥接的支持方法
-
-    /** 取某个方法现有的 Code 字节（没有 Code 返回 null）。 */
     public byte[] codeOf(Member m) {
         if (data == null) {
             return null;
@@ -1066,7 +1029,6 @@ public final class ClassFile {
         return null;
     }
 
-    /** 用新的 Code 字节替换某个方法的 Code（保留 max_stack/max_locals 与异常表）。 */
     public void overrideCode(Member m, byte[] newCode) {
         if (data == null) {
             return;
@@ -1079,20 +1041,18 @@ public final class ClassFile {
             int end = start + a.length();
             int codeLen = u4i(data, start + 4);
             int codeStart = start + 8;
-            int tailStart = codeStart + codeLen;             // 异常表 + 子属性
+            int tailStart = codeStart + codeLen;             
             ByteArrayOutputStream out = new ByteArrayOutputStream(
                     (tailStart - start) + newCode.length);
-            // max_stack / max_locals：max_locals 原样，max_stack 抬到下限以上。
-            //
-            // 桥接会在 <init> 里插入 "aload_0; 常量; putfield"，那需要 2 个栈位。
+
             // 只抬 max_stack 是安全的（抬大不影响语义，抬小才会 VerifyError）。
-            // 之前这里只是把下限记下来却没用上 —— 属于"写了没接线"，一并修掉。
+
             int oldMaxStack = u2(data, start);
             int newMaxStack = Math.max(oldMaxStack, maxStackFloor);
             out.write((newMaxStack >>> 8) & 0xFF);
             out.write(newMaxStack & 0xFF);
-            out.write(data, start + 2, 2);                  // max_locals 原样
-            // 新的 code_length
+            out.write(data, start + 2, 2);                  
+
             out.write((newCode.length >>> 24) & 0xFF);
             out.write((newCode.length >>> 16) & 0xFF);
             out.write((newCode.length >>> 8) & 0xFF);
@@ -1101,7 +1061,7 @@ public final class ClassFile {
             // 异常表与子属性原样（偏移没变，因为我们不增删分支）
             out.write(data, tailStart, end - tailStart);
             byte[] blob = out.toByteArray();
-            // 整个方法属性区 = 属性数 + 这个 Code 属性
+
             ByteArrayOutputStream attrs = new ByteArrayOutputStream(blob.length + 16);
             int count = 0;
             for (Attr b : m.attrs) {
@@ -1136,10 +1096,8 @@ public final class ClassFile {
         }
     }
 
-    /** 把某个方法所在 Code 的 max_stack 抬到至少 {@code min}。 */
     public void raiseMaxStack(int min) {
-        // 由于 overrideCode 保留原 max_stack，这里用"记录一个下限"的方式，
-        // 在 overrideCode 拼接时读它。
+
         maxStackFloor = Math.max(maxStackFloor, min);
     }
 
@@ -1181,7 +1139,6 @@ public final class ClassFile {
         return false;
     }
 
-    /** 本类引用的所有方法（owner.name:desc），诊断用。 */
     public java.util.List<String> methodReferences() {
         java.util.List<String> out = new java.util.ArrayList<>();
         for (int i = 1; i < cp.length; i++) {
@@ -1200,7 +1157,6 @@ public final class ClassFile {
         return out;
     }
 
-    /** 本类自己的内部名（等值于 {@code this_class} 指向的类名）。 */
     public String thisName() {
         Cp c = cp(thisClass);
         if (c == null) {
@@ -1209,12 +1165,10 @@ public final class ClassFile {
         return utf8(c.a);
     }
 
-    /** 本类自己的内部名（等价于 {@link #thisName()}，桥接代码用）。 */
     public String selfName() {
         return className(thisClass);
     }
 
-    /** 找 {@code (owner,name,desc)} 形式的方法引用，返回它的常量池索引；没有返回 -1。 */
     public int cpIndexForMethodref(String owner, String name, String desc) {
         for (int i = 1; i < cp.length; i++) {
             Cp c = cp[i];
@@ -1247,7 +1201,6 @@ public final class ClassFile {
         return owner.equals(utf8(cls.a)) && name.equals(utf8(nt.a)) && desc.equals(utf8(nt.b));
     }
 
-    /** 找 {@code owner.name:desc} 形式的字段引用，返回常量池索引；没有返回 -1。 */
     public int cpIndexForFieldref(String owner, String name, String desc) {
         for (int i = 1; i < cp.length; i++) {
             Cp c = cp[i];
@@ -1266,7 +1219,6 @@ public final class ClassFile {
         return -1;
     }
 
-    /** 本类是否已经有某个类级属性。 */
     private boolean hasClassAttr(String name) {
         for (Attr a : classAttrs) {
             if (name.equals(utf8(a.nameIndex()))) {
@@ -1276,7 +1228,6 @@ public final class ClassFile {
         return false;
     }
 
-    /** 追加项实际占用的槽位数（按字节里的 tag 现算，用于与 extraCpSlots 对账）。 */
     private static int extraCpSlotsOf(List<byte[]> extra) {
         int n = 0;
         for (byte[] e : extra) {
@@ -1286,17 +1237,14 @@ public final class ClassFile {
         return n;
     }
 
-    /** 追加项的条数与槽位数（诊断用）。 */
     public int[] extraCpStats() {
         return new int[] {extraCp.size(), extraCpSlots, cpSlotCount};
     }
 
-    /** 供自检使用：写入时的常量池计数（= 最大有效索引 + 1）。 */
     public int constantPoolCountForWrite() {
         return cpSlotCount + extraCpSlots;
     }
 
-    /** 原始常量池的原始字节长度（用于核对是否与计数一致）。 */
     public int rawCpByteLength() {
         return cpRawEnd - cpRawStart;
     }
@@ -1345,7 +1293,7 @@ public final class ClassFile {
                 }
                 int len = ConstantPoolTransplant.instructionLengthPublic(code, p, op, code.length);
                 if (len <= 0) {
-                    break;                        // 扫不动就停：这个方法的证据作废
+                    break;                        
                 }
                 p += len;
             }
@@ -1353,13 +1301,6 @@ public final class ClassFile {
         return false;
     }
 
-    /**
-     * 常量池里有没有"对某些 owner 调用某些方法"。
-     *
-     * <p>与 {@link #referencesAnyMethodOf} 的区别：那个要求 owner **精确等于**给定类；
-     * 这个允许 owner 是给定类**或其祖先**（用于"对方是否按新超类使用本类"的判断 ——
-     * 字节码里的 owner 常常写的是父类，例如 {@code BaseMappedRegistry.setMaxId}）。
-     */
     public boolean referencesAnyMethodOfDeep(java.util.Set<String> owners,
                                              java.util.Set<String> methodNames) {
         for (int i = 1; i < cp.length; i++) {
@@ -1381,7 +1322,6 @@ public final class ClassFile {
         return false;
     }
 
-    /** 常量池里有没有对"任意 owner"调用这些方法名（只看名字，最宽松的一档）。 */
     public boolean referencesAnyMethodName(java.util.Set<String> methodNames) {
         for (int i = 1; i < cp.length; i++) {
             Cp c = cp[i];
@@ -1435,13 +1375,6 @@ public final class ClassFile {
         return false;
     }
 
-    /**
-     * 扫描一段字节码/属性区，把其中的常量池索引重写到目标类。
-     *
-     * <p>实现搬到 {@link ConstantPoolTransplant} 里：那段逻辑要处理指令长度、变长指令、
-     * 异常表与属性区，单独成类更容易看清、也更容易被自检覆盖。
-     */
-
     public boolean modified() {
         return !extraCp.isEmpty() || !methodOverride.isEmpty() || !addedMethods.isEmpty()
                 || !addedFields.isEmpty() || !addedInterfaces.isEmpty()
@@ -1470,34 +1403,26 @@ public final class ClassFile {
             return data;
         }
         // 【必须在写 constant_pool_count **之前**做的事】
-        //
-        // 接口表与类属性区里有些名字要现分配常量池项（接口名、BootstrapMethods 属性名）。
-        // 如果等到写那两处时才调 addClass/addUtf8，新项就落在**已经写死的计数之外**，
-        // JVM 读到的就是越界索引 ——
+
         //   ClassFormatError: Attribute name has bad constant pool index 170
         // 实测就是这样崩的（NonNullList，185 轮排查）：
-        // 索引 170 被分配、计数却是 170（最大合法索引 169）。
-        //
-        // 所以先在这里把要用的索引全部预分配好，后面只做纯写入。
+
         int[] ifaceIdx = new int[addedInterfaces.size()];
         for (int i = 0; i < addedInterfaces.size(); i++) {
             ifaceIdx[i] = addClass(addedInterfaces.get(i));
         }
         boolean needBootstrapName = bootstrapExtra != null && !hasClassAttr("BootstrapMethods");
         int bootstrapNameIdx = needBootstrapName ? addUtf8("BootstrapMethods") : 0;
-        // 字段的 raw 字节是导入时就算好的，不需要新项；但方法覆盖（overrideCode）
-        // 里可能引用新项 —— 那些在分配时就已经就位，这里不用管。
 
         ByteOut o = new ByteOut(data.length + 256);
         o.u4(MAGIC).u2(minor).u2(major);
-        // constant_pool_count = 最大索引 + 1。追加项按**槽位**算（long/double 占 2），
+
         // 与 allocate() 保持同一套算术，否则索引与计数会对不上（踩过，见 allocate 的注释）。
         o.u2(cpSlotCount + extraCpSlots);
         // 自检：写出的项数（逐项写入）与声明的槽位数必须一致。
-        //
+
         // 这是踩过 {@code ClassFormatError: Attribute name has bad constant pool index 170}
-        // 之后加的 —— 那次的根因正是"分配的槽位数"与"实际写出的项数"不一致：
-        // 声明了 170 项（最大索引 169），却有地方引用了 170。
+
         // 与其等到游戏启动期才崩，不如在这里直接发现。
         int declared = cpSlotCount + extraCpSlots;
         int actual = cpSlotCount + extraCpSlotsOf(extraCp);
@@ -1534,14 +1459,13 @@ public final class ClassFile {
                 o.raw(override, 0, override.length);
             }
         }
-        // 拼接进来的外来方法：字节已经在 importMemberBody 里重写过常量池索引。
+
         for (byte[] extra : addedMethods) {
             o.raw(extra, 0, extra.length);
         }        if (droppedClassAttrs == null && bootstrapExtra == null) {
             o.raw(data, classAttrRawStart, classAttrRawEnd - classAttrRawStart);
         } else {
-            // 重建类属性区：原样搬运保留下来的属性，跳过的直接不写；
-            // 如果搬进来了 invokedynamic 的 bootstrap 条目，还要**合并**进 BootstrapMethods。
+
             ByteOut body = new ByteOut(64);
             int kept = 0;
             boolean wroteBootstrap = false;
@@ -1551,7 +1475,7 @@ public final class ClassFile {
                     continue;
                 }
                 if ("BootstrapMethods".equals(an) && bootstrapExtra != null) {
-                    // 合并：原有的条目 + 从源类搬来的条目
+
                     ByteOut merged = new ByteOut(64);
                     byte[] orig = new byte[a.length()];
                     System.arraycopy(data, a.offset(), orig, 0, a.length());
@@ -1573,7 +1497,7 @@ public final class ClassFile {
                 body.raw(data, a.offset(), a.length());
             }
             if (bootstrapExtra != null && !wroteBootstrap) {
-                // 原版没有 BootstrapMethods：新建一个
+
                 ByteOut bsm = new ByteOut(64);
                 bsm.u2(bootstrapExtra.size());
                 for (byte[] e : bootstrapExtra) {
@@ -1591,8 +1515,6 @@ public final class ClassFile {
         return o.toByteArray();
     }
 
-    // ---------------------------------------------------------------- 低层读取
-
     static int u2(byte[] b, int p) {
         return ((b[p] & 0xFF) << 8) | (b[p + 1] & 0xFF);
     }
@@ -1606,7 +1528,6 @@ public final class ClassFile {
         return u4i(b, p) & 0xFFFFFFFFL;
     }
 
-    /** 解码 class 文件使用的"修改型 UTF-8"。 */
     static String decodeMutf8(byte[] b, int off, int len) {
         char[] out = new char[len];
         int n = 0;

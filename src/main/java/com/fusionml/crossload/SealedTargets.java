@@ -58,7 +58,7 @@ public final class SealedTargets {
         if (foreignJars == null || foreignJars.isEmpty() || clientJar == null) {
             return List.of();
         }
-        // 第一步：跨端包里出现过的原版父类/接口。
+
         Set<String> candidates = new LinkedHashSet<>(64);
         for (Path jar : foreignJars) {
             try (ZipFile zip = new ZipFile(jar.toFile())) {
@@ -96,7 +96,7 @@ public final class SealedTargets {
         if (candidates.isEmpty()) {
             return List.of();
         }
-        // 第二步：在这些候选里挑出"原版那边确实是密封的"。
+
         List<String> out = new ArrayList<>(8);
         try (ZipFile vanilla = new ZipFile(clientJar.toFile())) {
             for (String name : candidates) {
@@ -113,7 +113,7 @@ public final class SealedTargets {
                         out.add(name);
                     }
                 } catch (RuntimeException ex) {
-                    // 解析不了就跳过：宁可少补一个，也不要改坏一个类
+
                 }
             }
         } catch (Throwable t) {
@@ -175,7 +175,6 @@ public final class SealedTargets {
         return false;
     }
 
-    /** 只读类头：常量池、访问标志、父类与接口。 */
     private static final class Header {
         final int access;
         final String self;
@@ -195,7 +194,7 @@ public final class SealedTargets {
                     | (b[3] & 0xFF)) != (int) ClassFile.MAGIC) {
                 throw new IllegalArgumentException("不是类文件");
             }
-            p = 8;                                        // magic + minor + major
+            p = 8;                                        
             int cpCount = u2(b, p);
             p += 2;
             String[] utf8 = new String[cpCount];

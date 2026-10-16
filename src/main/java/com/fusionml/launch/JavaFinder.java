@@ -120,7 +120,7 @@ public final class JavaFinder {
                     }
                 }
             } catch (IOException | NumberFormatException ignored) {
-                // 落到下面的目录名解析
+
             }
         }
         String name = home.getFileName() == null ? "" : home.getFileName().toString();
@@ -174,7 +174,7 @@ public final class JavaFinder {
                 }
             }
         } catch (IOException ignored) {
-            // 目录不可读就跳过
+
         }
     }
 }

@@ -91,7 +91,7 @@ public final class SuperclassBridge {
      */
     private static byte[] rewriteInit(ClassFile cf, byte[] code, String newSuper,
                                       int objectInit, String ctorPlan) {
-        // 找到 invokespecial <newSuper>.<init>()V
+
         int target = -1;
         int p = 0;
         while (p < code.length) {
@@ -105,20 +105,20 @@ public final class SuperclassBridge {
             }
             int len = ConstantPoolTransplant.instructionLengthPublic(code, p, op, code.length);
             if (len <= 0) {
-                return null;                      // 扫不动就放弃
+                return null;                      
             }
             p += len;
         }
         if (target < 0) {
-            return null;                          // 这个 <init> 没调对方超类构造器
+            return null;                          
         }
         ByteArrayOutputStream out = new ByteArrayOutputStream(code.length + 32);
         out.write(code, 0, target);
-        // 换成 Object.<init>()V
+
         out.write(0xB7);
         out.write((objectInit >>> 8) & 0xFF);
         out.write(objectInit & 0xFF);
-        // 接着插入桥接字段的默认值初始化
+
         int inserted = 0;
         if (ctorPlan != null && !ctorPlan.isEmpty()) {
             for (String f : ctorPlan.split(",")) {
@@ -130,28 +130,28 @@ public final class SuperclassBridge {
                 String desc = f.substring(colon + 1);
                 int fieldRef = cf.cpIndexForFieldref(cf.selfName(), name, desc);
                 if (fieldRef <= 0) {
-                    continue;                     // 字段没搬进来，跳过
+                    continue;                     
                 }
-                out.write(0x2A);                  // aload_0
+                out.write(0x2A);                  
                 switch (desc.charAt(0)) {
                     case 'L':
                     case '[':
-                        out.write(0x01);          // aconst_null
+                        out.write(0x01);          
                         break;
                     case 'J':
-                        out.write(0x09);          // lconst_0
+                        out.write(0x09);          
                         break;
                     case 'D':
-                        out.write(0x0E);          // dconst_0
+                        out.write(0x0E);          
                         break;
                     case 'F':
-                        out.write(0x0B);          // fconst_0
+                        out.write(0x0B);          
                         break;
                     default:
-                        out.write(0x03);          // iconst_0
+                        out.write(0x03);          
                         break;
                 }
-                out.write(0xB5);                  // putfield
+                out.write(0xB5);                  
                 out.write((fieldRef >>> 8) & 0xFF);
                 out.write(fieldRef & 0xFF);
                 inserted++;
@@ -159,8 +159,7 @@ public final class SuperclassBridge {
         }
         out.write(code, target + 3, code.length - target - 3);
         if (inserted > 0) {
-            // 插入的序列最深只用到 1 个栈位（aload_0 后压常量），
-            // 但保险起见把 max_stack 抬到至少 2（与 putfield 所需一致）。
+
             cf.raiseMaxStack(2);
         }
         return out.toByteArray();

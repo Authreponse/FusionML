@@ -5,10 +5,6 @@ import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Locale;
 
-// 游戏内 HUD：帧率面板 + 模组列表面板。
-//
-// 由我们自己的注入引擎挂到游戏的渲染方法上，不依赖任何平台的模组 API。
-//
 // 关键约束：**本类不能用编译期引用去碰游戏类**。
 // 我们的加载器 jar 要能在没有游戏的环境里独立运行（安装器、基准测试、自检都靠它），
 // 一旦在这里 import 了 net.minecraft.*，整个 jar 就绑死在某个游戏版本上了。
@@ -46,7 +42,6 @@ public final class FusionHud {
     private FusionHud() {
     }
 
-    /** 由前置分析把模组列表交给 HUD 展示（与命令行、独立窗口用的是同一份模型）。 */
     public static void setModList(ModListModel model) {
         modList = model;
     }
@@ -66,12 +61,10 @@ public final class FusionHud {
         earlyWindow = null;
     }
 
-    /** 游戏内 HUD 成功绘制一帧后调用。 */
     public static void notifyInGamePageDrawn() {
         closeEarlyWindowIfDrawn();
     }
 
-    /** 游戏主循环入口的钩子：一执行就说明游戏窗口已经就绪。 */
     private static java.util.List<String> extraMixinConfigs = java.util.List.of();
     private static boolean mixinExtraDone;
 
@@ -97,11 +90,10 @@ public final class FusionHud {
         System.out.println("[FusionML/探针] Minecraft.run() 钩子已触发（游戏主循环开始）");
         gameLoopStarted = true;
         // 跨类加载器的信号：必须用 JVM 级属性，不能用静态字段。
-        //
+
         // 原因：FusionHud 会被**两份**类加载器各加载一次 ——
         // premain 阶段是系统加载器那份，游戏里的钩子跑的是平台类加载器那份。
-        // 静态字段因此是"各一份"，前置阶段写进去的值钩子那边读不到。
-        // 系统属性属于整个 JVM，任何一份都能读到，是这个场景唯一可靠的通道。
+
         System.setProperty("fusion.gameLoopStarted", "true");
         // 此刻平台的 Mixin 服务已经初始化（Knot 在启动时完成），
         // 正是把"另一端的配置"注册进同一个服务的时机。
@@ -110,7 +102,7 @@ public final class FusionHud {
                 ? java.util.List.of(fromProperty.split(",")) : extraMixinConfigs;
         // 早注册路径（跨端桥挂在宿主平台 Mixin 引导方法的头部）如果已经成功，
         // 这里就不能再注册一遍 —— 配置只在"集合定型之前"加进去才作用于全部类，
-        // 这个时间点再注册只会变成一条永远不生效的记录。
+
         String bridged = System.getProperty("fusion.bridgeConfigsVerified", "");
         if (!bridged.isBlank()) {
             System.out.println("[FusionML] 跨端 Mixin 配置已在宿主平台初始化处注册（生效 "
@@ -122,7 +114,7 @@ public final class FusionHud {
             try {
                 // 兜底路径。说清楚它的性质：Mixin 的配置是在**阶段切换时定型**的，
                 // 而游戏主循环开始时那些切换早就走完了，所以这个时机注册进来的配置
-                // 基本不会再作用于任何类。它存在的意义是"万一早注册挂载点没生效，
+
                 // 至少在这里留下一条能看出问题的记录"，而不是假装还能补救。
                 var r = com.fusionml.mixin.FusionMixinRegistry.register(
                         FusionHud.class.getClassLoader(), configs, System.out::println);
@@ -159,9 +151,6 @@ public final class FusionHud {
         render(extractor);
     }
 
-    /**
-     * 取 GUI 对象上的渲染提取器（备用路径，当前未挂钩子）。
-     */
     private static Object guiExtractorOf(Object gui) {
         if (gui == null) {
             return null;
@@ -176,7 +165,7 @@ public final class FusionHud {
                     return v;
                 }
             } catch (Throwable ignored) {
-                // 换下一个候选
+
             }
         }
         return null;
@@ -193,7 +182,7 @@ public final class FusionHud {
         try {
             draw(extractor);
         } catch (Throwable t) {
-            // 只报一次：HUD 每帧都跑，出错就刷屏会淹掉真正的日志。
+
             failed = true;
             failReason = t.getClass().getSimpleName()
                     + (t.getMessage() == null ? "" : "：" + t.getMessage());
@@ -243,7 +232,6 @@ public final class FusionHud {
                 FPS.avgMs(), FPS.lowFps(0.01), FPS.worstMs());
         mText.invoke(g, font, line2, x + 8, y + 30, 0xFF9AA3C4, shadow);
 
-        // 帧时间柱状图：用一串细矩形拼出来，比折线更适合"一眼看抖动"。
         FPS.copyRecentMs(SAMPLES);
         double max = 20;
         for (double v : SAMPLES) {
@@ -290,8 +278,6 @@ public final class FusionHud {
             mText.invoke(g, font, tail, x + w - 6 - width(font, tail), ry, 0xFF9AA3C4, shadow);
         }
     }
-
-    // ------------------------------------------------------------------ 反射工具
 
     private static Object font() throws Exception {
         if (cachedFont != null) {
@@ -370,7 +356,7 @@ public final class FusionHud {
         try {
             w.close();
         } catch (Throwable ignored) {
-            // 关不掉也不该影响游戏
+
         }
     }
 }

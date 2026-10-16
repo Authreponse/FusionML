@@ -30,8 +30,7 @@ public final class LibraryPeek {
             return;
         }
         if (args.length >= 2 && "searchall".equals(args[0])) {
-            // 不收路径参数：整个 libraries 目录的位置从 build/gamedir.txt 推出来，
-            // 免得命令行里出现中文路径被来回转码弄坏。
+
             search(librariesDirOfCurrentGame().toString(), args[1]);
             return;
         }
@@ -78,11 +77,6 @@ public final class LibraryPeek {
         System.out.println("已复制：" + hit.getFileName() + " → " + out);
     }
 
-    /**
-     * 在一个 jar（或整个 libraries 目录）里找"哪个类的常量池出现了这段字符串"。
-     *
-     * <p>排查别人代码里的报错时，先找到"这句话是谁说的"往往比猜快得多。
-     */
     private static void search(String target, String pattern) throws Exception {
         byte[] needle = pattern.getBytes(StandardCharsets.UTF_8);
         List<Path> jars = new java.util.ArrayList<>();

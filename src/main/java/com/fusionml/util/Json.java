@@ -109,7 +109,7 @@ public final class Json {
     }
 
     private Map<String, Object> object() {
-        pos++;                       // '{'
+        pos++;                       
         Map<String, Object> map = new LinkedHashMap<>();
         ws();
         if (pos < len && buf[pos] == '}') {
@@ -144,7 +144,7 @@ public final class Json {
     }
 
     private List<Object> array() {
-        pos++;                       // '['
+        pos++;                       
         List<Object> list = new ArrayList<>();
         ws();
         if (pos < len && buf[pos] == ']') {
@@ -169,9 +169,9 @@ public final class Json {
     }
 
     private String string() {
-        pos++;                       // 开引号
+        pos++;                       
         int start = pos;
-        // 快路径：先扫一遍看有没有转义/UTF-8 多字节，没有就直接 new String 一段。
+
         boolean simple = true;
         int p = pos;
         while (p < len) {
@@ -298,7 +298,7 @@ public final class Json {
             try {
                 return Long.parseLong(s);
             } catch (NumberFormatException ignored) {
-                // 太大，落到 double
+
             }
         }
         return Double.parseDouble(s);
@@ -312,8 +312,6 @@ public final class Json {
         }
         pos += word.length();
     }
-
-    // ---------------------------------------------------------------- 取值助手
 
     @SuppressWarnings("unchecked")
     public static Map<String, Object> obj(Object o) {
@@ -346,9 +344,6 @@ public final class Json {
         return cur;
     }
 
-    // ---------------------------------------------------------------- 输出
-
-    /** 最小 JSON 生成器（测试夹具造 mod 元数据用，不追求功能齐全）。 */
     public static String write(Object v) {
         StringBuilder sb = new StringBuilder(256);
         writeTo(v, sb, 0);

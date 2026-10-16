@@ -93,7 +93,7 @@ public final class ModClassLoader extends ClassLoader {
 
     @Override
     protected URL findResource(String name) {
-        // 我们不做 URL 抽象：模组资源直接从 zip 取字节流更快。
+
         return null;
     }
 
@@ -106,7 +106,6 @@ public final class ModClassLoader extends ClassLoader {
         return super.getResourceAsStream(name);
     }
 
-    /** 直接读资源字节。命中返回字节，未命中返回 null。 */
     public byte[] readResource(String name) {
         Map<String, Integer> idx = resourceIndex;
         if (idx == null) {
@@ -134,7 +133,6 @@ public final class ModClassLoader extends ClassLoader {
         }
     }
 
-    /** 列出所有模组 jar 里以某前缀开头的资源。用于资源包/数据包扫描。 */
     public List<String> listResources(String prefix, int limit) {
         List<String> out = new ArrayList<>(Math.min(limit, 256));
         for (FastZip zip : jars) {
@@ -162,7 +160,6 @@ public final class ModClassLoader extends ClassLoader {
         return idx;
     }
 
-    /** 关闭所有底层 jar 句柄。 */
     public void close() {
         for (FastZip zip : jars) {
             try {

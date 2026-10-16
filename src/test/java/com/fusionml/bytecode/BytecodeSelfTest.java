@@ -25,6 +25,7 @@ public final class BytecodeSelfTest {
         testScanner();
         testZeroCopy();
         testHookInjectionOnRealClass();
+        testDispatchHook();
         System.out.println();
         System.out.println("字节码层自检：" + passed + " 通过 / " + failed + " 失败");
         if (failed > 0) {
@@ -41,8 +42,6 @@ public final class BytecodeSelfTest {
             System.out.println("  [失败] " + what);
         }
     }
-
-    // ------------------------------------------------------------ 1. 生成器
 
     private static void testEmitterRoundTrip() throws Exception {
         System.out.println("1) 类生成器 → JVM 加载执行");
@@ -62,8 +61,6 @@ public final class BytecodeSelfTest {
         check("生成的类名正确", "fusiontest.Emitted".equals(c.getName()));
     }
 
-    // ------------------------------------------------------------ 2. 扫描器
-
     private static void testScanner() throws Exception {
         System.out.println("2) 注册扫描器");
         byte[] bytes = new ClassEmitter("fusiontest/Scanned", "java/lang/Object")
@@ -80,8 +77,6 @@ public final class BytecodeSelfTest {
         check("scanName 快路径一致", "fusiontest/Scanned".equals(ClassScanner.scanName(bytes)));
     }
 
-    // ------------------------------------------------------------ 3. 零拷贝
-
     private static void testZeroCopy() throws Exception {
         System.out.println("3) 未改动时零拷贝");
         byte[] original = readResource("fusiontest/Target.class");
@@ -89,8 +84,6 @@ public final class BytecodeSelfTest {
         check("未改动标记", !cf.modified());
         check("toBytes 返回同一数组实例", cf.toBytes() == original);
     }
-
-    // ------------------------------------------------------------ 4. 注入
 
     private static void testHookInjectionOnRealClass() throws Exception {
         System.out.println("4) 对真实 javac 产物做 HEAD 注入（含 StackMapTable 平移）");
@@ -125,7 +118,7 @@ public final class BytecodeSelfTest {
 
         // 注入后的 Target 与钩子类 Hook 必须在同一个加载器里定义：
         // 否则钩子描述符里的 Lfusiontest/Target; 会被解析到父加载器的旧 Target 上，
-        // 造成"栈上是新 Target、方法签名要旧 Target"的校验冲突。
+
         java.util.Map<String, byte[]> defs = new java.util.HashMap<>();
         defs.put("fusiontest.Target", result.bytes());
         defs.put("fusiontest.Hook", readResource("fusiontest/Hook.class"));
@@ -136,7 +129,7 @@ public final class BytecodeSelfTest {
 
             Method compute = targetClass.getMethod("compute", int.class, int.class);
             Object value = compute.invoke(instance, 5, 3);
-            // 期望：i=0..4，偶数加 b，奇数加 2b → 3+6+3+6+3 = 21
+
             check("注入后 compute 行为不变（期望 21，实际 " + value + "）",
                     Integer.valueOf(21).equals(value));
             Object hits = hookClass.getField("computeHits").get(null);
@@ -146,7 +139,7 @@ public final class BytecodeSelfTest {
 
             Method mix = targetClass.getMethod("mix", long.class, double.class);
             Object mixValue = mix.invoke(null, 100L, 2.5d);
-            // 期望：100 + 0 + 2 + 5 + 7 = 114
+
             check("注入后 mix 行为不变（期望 114，实际 " + mixValue + "）",
                     Long.valueOf(114L).equals(mixValue));
             Object mixHits = hookClass.getField("mixHits").get(null);
@@ -155,7 +148,146 @@ public final class BytecodeSelfTest {
         }
     }
 
-    // ------------------------------------------------------------ 工具
+    /**
+     * 派发钩子自检。
+     *
+     * <p>这是服务端能否跑通的关键：注入的调用<b>不能引用我们自己的类</b>
+     * （服务端 bundler 的加载器看不见 App CL），只能引用 {@code java.lang.System}。
+     * 本测试把它注入到一个真实 javac 产物上，然后<b>真的 defineClass 并执行</b> ——
+     * 只有通过 JVM 校验器才算数，光看字节长度没有意义。
+     */
+    private static void testDispatchHook() throws Exception {
+        System.out.println("5) 派发钩子（只引用 JDK 类型）→ 真实加载并执行");
+        byte[] original = readResource("fusiontest/Target.class");
+        String target = "fusiontest/Target";
+
+        // 这正是 server-dev 提醒的关键前提（否则执行时又要解析我们的类）。
+        java.util.concurrent.atomic.AtomicInteger hits = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.atomic.AtomicReference<Object> seen =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        String key = HookInjector.registerDispatch("selftest", self -> {
+            hits.incrementAndGet();
+            seen.set(self);
+        });
+        check("注册键写在 fusion.hookDispatch.* 下", key.startsWith("fusion.hookDispatch."));
+
+        List<HookInjector.Hook> hooks = List.of(
+                new HookInjector.Hook(target, "compute", null, HookInjector.DISPATCH_OWNER, "selftest",
+                        "(Ljava/lang/Object;)V", HookInjector.Point.HEAD));
+        HookInjector.Result result = HookInjector.inject(original, hooks);
+        check("派发钩子注入了 1 个方法", result.injectedMethods() == 1);
+        dump(result.bytes(), "Target-dispatch.class");
+
+        java.util.Map<String, byte[]> defs = new java.util.HashMap<>();
+        defs.put("fusiontest.Target", result.bytes());
+        try (InjectionLoader loader = new InjectionLoader(defs)) {
+            Class<?> targetClass = loader.loadClass("fusiontest.Target");
+            Object instance = targetClass.getDeclaredConstructor().newInstance();
+            Method compute = targetClass.getMethod("compute", int.class, int.class);
+            Object value = compute.invoke(instance, 5, 3);
+            check("派发注入后行为不变（期望 21，实际 " + value + "）",
+                    Integer.valueOf(21).equals(value));
+            check("派发目标被调用（次数=" + hits.get() + "）", hits.get() == 1);
+            check("派发目标收到宿主对象 self（非 null）", seen.get() != null);
+            check("self 就是被调用的那个实例", seen.get() == instance);
+        }
+
+        // 未注册的键：必须静默空转，不能抛异常。
+
+        // 注入端无法判空（会引入分支 → 需要栈图帧），所以"没注册"必须靠调用方
+
+        List<HookInjector.Hook> missing = List.of(
+                new HookInjector.Hook(target, "compute", null, HookInjector.DISPATCH_OWNER,
+                        "unregistered-key", "(Ljava/lang/Object;)V",
+                        HookInjector.Point.HEAD));
+        HookInjector.Result r2 = HookInjector.inject(original, missing);
+        java.util.Map<String, byte[]> defs2 = new java.util.HashMap<>();
+        defs2.put("fusiontest.Target", r2.bytes());
+        boolean npeWithoutDefault = false;
+        try (InjectionLoader loader = new InjectionLoader(defs2)) {
+            Class<?> targetClass = loader.loadClass("fusiontest.Target");
+            Object instance = targetClass.getDeclaredConstructor().newInstance();
+            targetClass.getMethod("compute", int.class, int.class).invoke(instance, 5, 3);
+        } catch (Throwable t) {
+            // 这条"失败"是被记录的契约，不是缺陷：注入端无法判空，
+            // 所以调用方**必须**在注入前装入兜底值。把它断言出来，
+
+            Throwable c = t instanceof java.lang.reflect.InvocationTargetException ? t.getCause() : t;
+            npeWithoutDefault = c instanceof NullPointerException;
+        }
+        check("未装兜底值时确实会 NPE（这是必须由调用方规避的契约）", npeWithoutDefault);
+
+        // 防线本身：装上兜底值之后，同一个注入必须无害。
+        HookInjector.ensureDispatchDefault("unregistered-key");
+        check("ensureDispatchDefault 装入了非 null 兜底值",
+                System.getProperties().get("fusion.hookDispatch.unregistered-key") != null);
+        java.util.Map<String, byte[]> defs3 = new java.util.HashMap<>();
+        defs3.put("fusiontest.Target", r2.bytes());
+        try (InjectionLoader loader = new InjectionLoader(defs3)) {
+            Class<?> targetClass = loader.loadClass("fusiontest.Target");
+            Object instance = targetClass.getDeclaredConstructor().newInstance();
+            Object value = targetClass.getMethod("compute", int.class, int.class)
+                    .invoke(instance, 5, 3);
+            check("装入兜底值后注入无害（行为仍为 21，实际 " + value + "）",
+                    Integer.valueOf(21).equals(value));
+        } catch (Throwable t) {
+            check("装入兜底值后不应抛异常，实际抛了 " + t, false);
+        }
+
+        testDispatchLargeConstantPool();
+    }
+
+    /**
+     * 大常量池下的派发注入（{@code ldc} → {@code ldc_w} 那条路）。
+     *
+     * <p>这条测试是有来历的：服务端实跑时 `MinecraftServer` 的常量池有 4001 项，
+     * 派发键的索引远超 255，而当时实现直接抛异常跳过注入 —— 结果是**服务端能正常启动，
+     * 但跨端入口点钩子从未生效**，日志里只有一行容易忽略的"变换失败，已跳过"。
+     * 这是最难发现的一类失败：功能静默失效，而主流程看起来完全正常。
+     *
+     * <p>这里用"重复注入同一个类"的办法把常量池撑过 255，逼出 {@code ldc_w} 路径。
+     */
+    private static void testDispatchLargeConstantPool() throws Exception {
+        System.out.println("6) 大常量池（>255）→ ldc_w 路径");
+        byte[] bytes = readResource("fusiontest/Target.class");
+        String target = "fusiontest/Target";
+
+        for (int i = 0; i < 400; i++) {
+            HookInjector.ensureDispatchDefault("pad" + i);
+            List<HookInjector.Hook> pad = List.of(
+                    new HookInjector.Hook(target, "compute", null, HookInjector.DISPATCH_OWNER,
+                            "pad" + i, "(Ljava/lang/Object;)V", HookInjector.Point.HEAD));
+            HookInjector.Result rr = HookInjector.inject(bytes, pad);
+            if (rr.changed()) {
+                bytes = rr.bytes();
+            }
+        }
+        // 确认常量池确实被撑大了（否则本测试没有意义）：
+
+        int probeIndex = ClassFile.read(bytes).addClass("fusiontest/Probe");
+        check("常量池索引已超过 255（实际 " + probeIndex + "）", probeIndex > 255);
+
+        java.util.concurrent.atomic.AtomicInteger hits = new java.util.concurrent.atomic.AtomicInteger();
+        HookInjector.registerDispatch("bigpool", self -> hits.incrementAndGet());
+        List<HookInjector.Hook> hooks = List.of(
+                new HookInjector.Hook(target, "compute", null, HookInjector.DISPATCH_OWNER,
+                        "bigpool", "(Ljava/lang/Object;)V", HookInjector.Point.HEAD));
+        HookInjector.Result result = HookInjector.inject(bytes, hooks);
+        check("大常量池下仍然注入成功（未被跳过）", result.injectedMethods() == 1);
+        dump(result.bytes(), "Target-bigpool.class");
+
+        java.util.Map<String, byte[]> defs = new java.util.HashMap<>();
+        defs.put("fusiontest.Target", result.bytes());
+        try (InjectionLoader loader = new InjectionLoader(defs)) {
+            Class<?> targetClass = loader.loadClass("fusiontest.Target");
+            Object instance = targetClass.getDeclaredConstructor().newInstance();
+            Object value = targetClass.getMethod("compute", int.class, int.class)
+                    .invoke(instance, 5, 3);
+            check("大常量池下行为不变（期望 21，实际 " + value + "）",
+                    Integer.valueOf(21).equals(value));
+            check("大常量池下派发目标被调用（次数=" + hits.get() + "）", hits.get() == 1);
+        }
+    }
 
     private static byte[] readResource(String name) throws Exception {
         try (InputStream in = BytecodeSelfTest.class.getClassLoader().getResourceAsStream(name)) {
@@ -172,7 +304,6 @@ public final class BytecodeSelfTest {
         }
     }
 
-    /** 把字节写到 build/injected 下，方便用 javap 检查生成结果。 */
     private static void dump(byte[] bytes, String fileName) {
         try {
             java.nio.file.Path dir = java.nio.file.Path.of("build", "injected");

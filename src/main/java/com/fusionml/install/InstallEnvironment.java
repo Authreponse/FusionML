@@ -47,7 +47,6 @@ public final class InstallEnvironment {
         }
     }
 
-    /** 体检结果。 */
     public record Report(Path gameDir, Path modsDir, List<Version> versions,
                          Map<ModFormat, Integer> modsByFormat, int modJars, int totalMods,
                          List<String> unknownJars, JavaInfo java, boolean installed,
@@ -75,7 +74,6 @@ public final class InstallEnvironment {
         }
     }
 
-    /** 本机 Java 情况。 */
     public record JavaInfo(Path exe, int major, String path) {
         public String line() {
             return major > 0 ? "Java " + major + "（" + path + "）" : "没找到可用的 Java";
@@ -94,7 +92,7 @@ public final class InstallEnvironment {
         List<String> notes = new ArrayList<>(4);
         Path versionsDir = gameDir.resolve("versions");
         // 版本列表可能有两个来源，两个都要看：
-        //   1) 目录自己的 versions 子目录（标准 .minecraft 布局）；
+
         //   2) 用户直接把"某一个版本目录"拖进来（例如 ...\versions\26.3-Fabric 0.19.5），
         //      这时版本列表在它的同级目录里。
         // 只取其一都会踩坑：实测某些实例目录里会自己长出一个空的 versions 子目录，
@@ -192,7 +190,7 @@ public final class InstallEnvironment {
                 }
             }
         } catch (Throwable ignored) {
-            // 没有清单就是没装过
+
         }
         return new Report(gameDir, modsDir, versions, byFormat, modJars, totalMods,
                 unknown, java, installed, loaderAt, notes);

@@ -172,8 +172,7 @@ public final class SpliceProbe {
             bad.add(where + " 索引 " + idx + " 不存在");
             return;
         }
-        // Java 8+ 允许 invokespecial/invokestatic 指向接口方法（InterfaceMethodref），
-        // 用于调用接口的默认方法。所以期望 Methodref 时，接受 InterfaceMethodref。
+
         if (expect == 10 && c.tag == 11) {
             return;
         }
@@ -183,7 +182,6 @@ public final class SpliceProbe {
         }
     }
 
-    /** 取一个方法的 Code 字节。 */
     private static int[] codeOf(ClassFile cf, byte[] bytes, ClassFile.Member m) {
         for (ClassFile.Attr a : m.attrs) {
             if (!"Code".equals(cf.utf8(a.nameIndex()))) {
@@ -287,8 +285,7 @@ public final class SpliceProbe {
                 }
                 byte[] vb = vz.read(ve);
                 byte[] pb = pz.read(pe);
-                // 先对**未修改的原版类**跑一遍同样的检查：如果原版也有"类型错用"，
-                // 那说明是检查规则过严（例如 Java 8+ 允许 invokespecial 指向接口方法），
+
                 // 而不是我们拼接引入的问题。没有这个基线，就会被自己的检查误导。
                 java.util.List<String> vanillaBad = checkCpTypes(ClassFile.read(vb), vb);
                 System.out.println("   原版基线：类型检查发现 " + vanillaBad.size() + " 处"
@@ -320,9 +317,9 @@ public final class SpliceProbe {
                 System.out.println("   拼接后字节 " + out.length + "（原版 " + vb.length + "）");
                 ClassFile result = ClassFile.read(out);
                 System.out.println("   拼接后方法 " + result.methods().length + " 个");
-                // 直接查"字节码里的常量池索引有没有越界"。
+
                 // 这是对"槽位 vs 项数"那类算术错误最直接的检查：
-                // 越界时 JVM 的 defineClass 和 javap 都可能看不出来，
+
                 // 但宿主平台的 ASM 会以 ArrayIndexOutOfBoundsException 崩在启动期。
                 int maxIdx = 0;
                 for (int i = 1; i < 65536; i++) {
@@ -342,8 +339,7 @@ public final class SpliceProbe {
                     System.out.println("   索引检查：发现 " + bad.size() + " 处越界 —— "
                             + String.join("、", bad.subList(0, Math.min(6, bad.size()))));
                 }
-                // 类型正确性检查：找出"引用某个索引、但该索引的类型不对"的位置。
-                // 这比"越界"更隐蔽 —— 索引在范围内，但用错了类型。
+
                 java.util.List<String> typeBad = checkCpTypes(result, out);
                 if (typeBad.isEmpty()) {
                     System.out.println("   类型检查：全部正确");
@@ -351,7 +347,7 @@ public final class SpliceProbe {
                     System.out.println("   类型检查：发现 " + typeBad.size() + " 处类型错用 —— "
                             + String.join("、", typeBad.subList(0, Math.min(8, typeBad.size()))));
                 }
-                // 把"新旧索引对照"打出来：源类索引 → 目标类索引，以及目标项的类型。
+
                 // 出错时最需要看的就是"我把它映射到哪去了、那边是什么类型"。
                 System.out.println("   索引映射（源 → 目标，只列新分配的）：");
                 java.util.Map<Integer, Integer> m2 = result.mappingDump();
@@ -365,22 +361,21 @@ public final class SpliceProbe {
                     System.out.println("      #" + en.getKey() + " → #" + en.getValue()
                             + " tag" + (dst == null ? "?" : dst.tag) + " " + dst);
                 }
-                // 直接看索引 203 及其组成部分 —— 这是"类型错用"报出来的那个。
+
                 for (int probe : new int[] {186, 187, 188, 189, 190, 203}) {
                     ClassFile.Cp c = result.cp(probe);
                     System.out.println("   目标 #" + probe + " = tag"
                             + (c == null ? "?" : c.tag) + " " + c);
                 }
                 // 把"新分配的项"按顺序列出来：源索引 → 目标索引 → 目标项类型。
-                // 拼接引入的那个方法引用了哪个索引、那个索引实际是什么，一眼可见。
+
                 System.out.println("   拼接方法引用的索引（取自 NeoForge 字节码）：");
                 java.util.List<String> refs = checkCpIndices(result, out);
                 System.out.println("     越界引用 " + refs.size() + " 处");
                 java.util.List<String> tb = checkCpTypes(result, out);
                 System.out.println("     类型错用 " + tb.size() + " 处"
                         + (tb.isEmpty() ? "" : "：" + String.join("、", tb)));
-                // 直接比对"拼接进来的那个方法"的字节码：源里的索引 → 目标里的索引。
-                // 这是最直接的证据：如果某个索引在目标里**没变**，说明扫描漏掉了它。
+
                 System.out.println("   拼接方法的字节码对照（源 vs 目标）：");
                 for (ClassFile.Member pm : ClassFile.read(pb).methods()) {
                     String pn = ClassFile.read(pb).utf8(pm.nameIndex);
@@ -405,12 +400,12 @@ public final class SpliceProbe {
                         }
                     }
                 }
-                // 关键一步：让 JVM 真的去定义并校验这个类。
+
                 // defineClass 会跑字节码校验器；校验不过就抛 VerifyError/ClassFormatError。
-                //
+
                 // 注意不能用反射调 ClassLoader#defineClass：Java 9+ 的模块系统不让
                 // 未命名模块反射进 java.lang（实测报 InaccessibleObjectException）。
-                // 正确做法是继承 ClassLoader，把 defineClass 暴露出来。
+
                 try {
                     DefiningLoader loader = new DefiningLoader(
                             SpliceProbe.class.getClassLoader());

@@ -38,7 +38,7 @@ public final class CrossLoadSelfTest {
         String mcKey = versionId.split("[-_ ]")[0];
         McInstance instance = McInstance.open(instanceRoot(gameDir));
         McInstance.Effective eff = instance.resolve(versionId);
-        // 把"游戏里由启动器/前置分析写好的那几个系统属性"在这里等价地摆出来：
+
         // 同一份驱动代码在两条路径上读到的东西必须一致，否则自检通过也说明不了任何事。
         System.setProperty("fusion.version", versionId);
         System.setProperty("fusion.gameDir", gameDir.toAbsolutePath().toString());
@@ -47,15 +47,11 @@ public final class CrossLoadSelfTest {
         // 类路径＝游戏类（版本 jar + 它的库）＋ 对方平台的运行时。
         // 这正是游戏里跨端包最终所处的那个"同一个加载器"。
         List<URL> urls = new ArrayList<>();
-        // 与游戏里一致：对方平台官方那份"补丁原版 jar"排在原版 jar 之前。
+
         // 这就是本自检能复现/验证注册表那条链路的前提 —— 少了它，
-        // Registry 不实现 IRegistryExtension，DeferredRegister 一走到就抛
-        // LambdaConversionException。
-        // 先把"借来的对方平台运行时"解析出来，**再**合并补丁基座。
-        //
+
         // 顺序不能反：合并时要判断"对方新增的接口是不是对方模组硬依赖的"
-        // （看那个接口有没有抽象方法），而接口住在运行时包里 ——
-        // 运行时清单还没设好就去合并，读不到接口，判据只能保守地全按"必需"处理，
+
         // 于是 273 个类会被整类换掉，宿主平台的 @Overwrite Mixin 就会崩。
         // 这个顺序在真机路径上也是对的（CrossPlatformBridge 先解析运行时再合并）。
         ForeignRuntime.Found runtime = ForeignRuntime.resolve(instance, "neoforge", mcKey,
@@ -100,7 +96,6 @@ public final class CrossLoadSelfTest {
         System.out.println("[自检] 运行时：" + runtime.summary());
         System.out.println("[自检] 类路径 " + urls.size() + " 项");
 
-        // 与游戏里一样：先把"需要解除密封的原版类型"算出来，再在定义类的时候补上。
         // 游戏里这一步由 javaagent 的变换管线完成，这里等价地用类加载器做。
         List<Path> scan = new ArrayList<>(runtime.jars());
         scan.add(probe);
@@ -112,7 +107,7 @@ public final class CrossLoadSelfTest {
         try (URLClassLoader loader = new Unsealing(urls.toArray(new URL[0]),
                 CrossLoadSelfTest.class.getClassLoader(),
                 new java.util.HashSet<>(sealed))) {
-            // 与游戏里一致：先把补丁类头部要解析的对方类型预热掉，
+
             // 否则"定义 Registry 时解析 IRegistryExtension"会循环失败。
             for (String t : PatchedBase.warmUpTypes()) {
                 try {
@@ -121,12 +116,9 @@ public final class CrossLoadSelfTest {
                     System.out.println("[自检] 预热 " + t + " 失败：" + e);
                 }
             }
-            // 离线模拟"原版引导已经走完"这件事。完整的 Bootstrap.bootStrap() 在离线 JVM 里
+
             // 跑不动（它要游戏版本号、数据修复器等启动期上下文），所以只把驱动真正依赖的
-            // 那部分状态摆出来：内置注册表对象已建好、根注册表里的 Holder 已绑定
-            // （原版是在冻结时绑定的）。
-            // 原版引导的第一件事就是把 bootstrapped 置位（注册表对象的创建会检查它），
-            // 离线这条路径就手工补上。
+
             Class<?> bootstrap = Class.forName("net.minecraft.server.Bootstrap", true, loader);
             java.lang.reflect.Field flag = bootstrap.getDeclaredField("isBootstrapped");
             flag.setAccessible(true);
@@ -153,7 +145,7 @@ public final class CrossLoadSelfTest {
                 failures++;
                 System.out.println("[自检] 失败：注册表事件没有发出去");
             }
-            // 直接问那个模组：它注册的物品到底在不在原版注册表里。
+
             try {
                 Class<?> mod = Class.forName("fusiontest.bridge.ProbeMod", true, loader);
                 Object report = mod.getMethod("report").invoke(null);
