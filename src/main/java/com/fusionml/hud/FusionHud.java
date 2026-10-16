@@ -5,9 +5,9 @@ import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Locale;
 
-// 游戏内 HUD：帧率面板 + 模组列表。
+// 游戏内 HUD：帧率面板 + 模组列表面板。
 //
-// 由我们自己的注入引擎挂到游戏的 Hud 渲染方法上，不依赖任何平台的模组 API。
+// 由我们自己的注入引擎挂到游戏的渲染方法上，不依赖任何平台的模组 API。
 //
 // 关键约束：**本类不能用编译期引用去碰游戏类**。
 // 我们的加载器 jar 要能在没有游戏的环境里独立运行（安装器、基准测试、自检都靠它），
@@ -27,8 +27,8 @@ public final class FusionHud {
     /**
      * 早期窗口的句柄。
      *
-     * <p>用途只有一个，但很重要：让它保持显示，直到游戏内的主加载页面**真正画出第一帧**
-     * 才关闭。这样"平台引导期间的黑屏"由早期窗口兜住，"游戏内的加载页"紧接着接上，
+     * <p>用途只有一个，但很重要：让它保持显示，直到游戏内的 HUD **真正画出第一帧**
+     * 才关闭。这样"平台引导期间的黑屏"由早期窗口兜住，紧接着接上游戏内的画面，
      * 玩家全程看到的是一段连续的进度，而不是"窗口一关、黑屏几秒、游戏突然出现"。
      */
     private static volatile com.fusionml.earlywindow.EarlyWindow earlyWindow;
@@ -66,7 +66,7 @@ public final class FusionHud {
         earlyWindow = null;
     }
 
-    /** 游戏内主加载页面成功绘制一帧后调用（由 FusionMainPage 触发）。 */
+    /** 游戏内 HUD 成功绘制一帧后调用。 */
     public static void notifyInGamePageDrawn() {
         closeEarlyWindowIfDrawn();
     }
@@ -80,20 +80,31 @@ public final class FusionHud {
         extraMixinConfigs = configs == null ? java.util.List.of() : configs;
     }
 
+    /** 游戏主循环是否已经开始（供看门线程判断）。 */
+    public static boolean isGameLoopStarted() {
+        return gameLoopStarted;
+    }
+
+    private static volatile boolean gameLoopStarted;
+
+    /**
+     * 游戏主循环入口的钩子。
+     *
+     * <p>这里做两件事：标记"循环已开始"（供早期窗口看门线程用），
+     * 以及把跨端 Mixin 配置登记进平台的服务里。
+     */
     public static void onGameLoopStarted(Object minecraft) {
         System.out.println("[FusionML/探针] Minecraft.run() 钩子已触发（游戏主循环开始）");
         gameLoopStarted = true;
         // 跨类加载器的信号：必须用 JVM 级属性，不能用静态字段。
         //
-        // 原因（这是本轮定位到的根因）：FusionHud 会被**两份**类加载器各加载一次 ——
+        // 原因：FusionHud 会被**两份**类加载器各加载一次 ——
         // premain 阶段是系统加载器那份，游戏里的钩子跑的是平台类加载器那份。
         // 静态字段因此是"各一份"，前置阶段写进去的值钩子那边读不到。
         // 系统属性属于整个 JVM，任何一份都能读到，是这个场景唯一可靠的通道。
         System.setProperty("fusion.gameLoopStarted", "true");
         // 此刻平台的 Mixin 服务已经初始化（Knot 在启动时完成），
         // 正是把"另一端的配置"注册进同一个服务的时机。
-        // 这是"一个进程里三端共用一套 Mixin"的可验证落点：
-        // 注册后查 getConfigs()，能同时看到两端的配置就说明服务是共用的。
         String fromProperty = System.getProperty("fusion.extraMixinConfigs", "");
         java.util.List<String> configs = extraMixinConfigs.isEmpty() && !fromProperty.isBlank()
                 ? java.util.List.of(fromProperty.split(",")) : extraMixinConfigs;
@@ -132,65 +143,31 @@ public final class FusionHud {
                 Thread.currentThread().interrupt();
             }
             closeEarlyWindowIfDrawn();
-        }, "fusion-early-window-close").start();
-    }
-
-    private static volatile boolean gameLoopStarted;
-
-    /** 游戏主循环是否已经启动（看门线程据此关闭早期窗口）。 */
-    public static boolean isGameLoopStarted() {
-        // 同理由：看门线程在另一份 FusionHud 里，得靠 JVM 级属性互通。
-        return gameLoopStarted || Boolean.parseBoolean(
-                System.getProperty("fusion.gameLoopStarted", "false"));
-    }
-
-    /** 游戏内页面成功绘制一帧后调用：到这一步才收掉早期窗口，衔接无缝。 */
-    private static void closeEarlyWindowIfDrawn() {
-        com.fusionml.earlywindow.EarlyWindow window = earlyWindow;
-        if (window != null) {
-            earlyWindow = null;
-            try {
-                window.finish("已交给游戏内加载页面");
-                window.close();
-            } catch (Throwable ignored) {
-                // 关闭失败无所谓，窗口是独立资源
-            }
-        }
-    }
-
-    public static void toggleModList() {
-        modListVisible = !modListVisible;
+        }, "fusion-hud-handover").start();
     }
 
     /**
      * 注入到 {@code Hud.extractRenderState} 的钩子：游戏内有世界时每帧调用。
      *
-     * <p>注意它**在主界面上不会被调用**（那时没有 HUD 可画），所以主界面那张页面
-     * 走的是下面 {@link #onGuiExtract}。
+     * <p>注意它**在主界面上不会被调用**（那时没有 HUD 可画）——
+     * 这是刻意接受的：我们不再往 Gui/TitleScreen 上挂额外钩子。
+     * 早先为"让主界面也显示"做过尝试（Gui 的 HEAD/RETURN 注入、
+     * 每帧轮询键盘、自绘模组菜单），全部撤掉了 ——
+     * 那些改动引入了闪烁与输入失灵，收益不值这个代价。
      */
     public static void onHudExtract(Object hud, Object extractor, Object deltaTracker) {
         render(extractor);
     }
 
     /**
-     * 注入到 {@code Gui.extractRenderState} 的钩子：GUI 层每帧都会走，主界面也包含在内。
-     * 主加载页面与 FPS/模组列表都由它驱动。
-     */
-    public static void onGuiExtract(Object gui, Object deltaTracker, boolean flag1, boolean flag2) {
-        render(guiExtractorOf(gui));
-    }
-
-    /**
-     * 取 GUI 对象上的渲染提取器。
-     *
-     * <p>{@code Gui} 自己不是提取器，需要从它的字段里拿（字段名随版本会变，
-     * 所以这里按键值语义逐个候选尝试，而不是写死一个名字）。
+     * 取 GUI 对象上的渲染提取器（备用路径，当前未挂钩子）。
      */
     private static Object guiExtractorOf(Object gui) {
         if (gui == null) {
             return null;
         }
-        for (String field : new String[] {"guiGraphicsExtractor", "extractor", "guiGraphics"}) {
+        for (String field : new String[] {"guiRenderState", "guiGraphicsExtractor",
+                "extractor", "guiGraphics"}) {
             try {
                 java.lang.reflect.Field f = gui.getClass().getDeclaredField(field);
                 f.setAccessible(true);
@@ -237,9 +214,6 @@ public final class FusionHud {
 
         int screenW = screenWidth();
         int screenH = screenHeight();
-        // 主加载页面：由加载器接管主界面（原生 TitleScreen 会被收起）。
-        // 先画它，再画 HUD 面板，这样 FPS/模组列表依然浮在主页面之上。
-        FusionMainPage.tick(minecraftInstance(), g, font, screenW, screenH);
 
         drawFpsPanel(g, font, shadow);
         if (modListVisible && modList != null) {
@@ -247,13 +221,6 @@ public final class FusionHud {
         }
         // 先画完一帧，再收早期窗口 —— 顺序反了就会出现"窗口没了、游戏画面还没出来"的空档。
         closeEarlyWindowIfDrawn();
-    }
-
-    private static Object minecraftInstance() throws Exception {
-        if (mGetInstance == null) {
-            mGetInstance = Class.forName("net.minecraft.client.Minecraft").getMethod("getInstance");
-        }
-        return mGetInstance.invoke(null);
     }
 
     private static void drawFpsPanel(Object g, Object font, boolean shadow) throws Exception {
@@ -333,49 +300,77 @@ public final class FusionHud {
         if (mGetInstance == null) {
             Class<?> mcClass = Class.forName("net.minecraft.client.Minecraft");
             mGetInstance = mcClass.getMethod("getInstance");
-            fFont = mcClass.getField("font");
         }
         Object mc = mGetInstance.invoke(null);
-        if (mc == null) {
-            throw new IllegalStateException("Minecraft 实例尚未创建");
+        if (fFont == null) {
+            fFont = mc.getClass().getDeclaredField("font");
+            fFont.setAccessible(true);
         }
         cachedFont = fFont.get(mc);
-        if (cachedFont == null) {
-            throw new IllegalStateException("字体尚未就绪");
-        }
         return cachedFont;
+    }
+
+    private static int width(Object font, String s) {
+        try {
+            Method m = font.getClass().getMethod("width", String.class);
+            Object v = m.invoke(font, s);
+            return v instanceof Number n ? n.intValue() : s.length() * 6;
+        } catch (Throwable t) {
+            return s.length() * 6;
+        }
     }
 
     private static int screenWidth() {
         try {
-            return (int) windowSize(true);
+            return windowDimension(true);
         } catch (Throwable t) {
-            return 1280;
+            return 854;
         }
     }
 
     private static int screenHeight() {
         try {
-            return (int) windowSize(false);
+            return windowDimension(false);
         } catch (Throwable t) {
-            return 720;
+            return 480;
         }
     }
 
-    private static int windowSize(boolean width) throws Exception {
-        if (mGetWindow == null) {
+    private static int windowDimension(boolean width) throws Exception {
+        if (mGetInstance == null) {
             Class<?> mcClass = Class.forName("net.minecraft.client.Minecraft");
-            mGetWindow = mcClass.getMethod("getWindow");
-            Class<?> winClass = Class.forName("com.mojang.blaze3d.platform.Window");
-            mWindowWidth = winClass.getMethod("getGuiScaledWidth");
-            mWindowHeight = winClass.getMethod("getGuiScaledHeight");
+            mGetInstance = mcClass.getMethod("getInstance");
         }
-        Object win = mGetWindow.invoke(mGetInstance.invoke(null));
-        return (Integer) (width ? mWindowWidth : mWindowHeight).invoke(win);
+        Object mc = mGetInstance.invoke(null);
+        if (mGetWindow == null) {
+            mGetWindow = mc.getClass().getMethod("getWindow");
+        }
+        Object window = mGetWindow.invoke(mc);
+        // 用缩放后的 GUI 坐标（HUD 的绘制坐标系），不是物理像素。
+        if (width) {
+            if (mWindowWidth == null) {
+                mWindowWidth = window.getClass().getMethod("getGuiScaledWidth");
+            }
+            Object v = mWindowWidth.invoke(window);
+            return v instanceof Number n ? n.intValue() : 854;
+        }
+        if (mWindowHeight == null) {
+            mWindowHeight = window.getClass().getMethod("getGuiScaledHeight");
+        }
+        Object v = mWindowHeight.invoke(window);
+        return v instanceof Number n ? n.intValue() : 480;
     }
 
-    private static int width(Object font, String text) throws Exception {
-        Method m = font.getClass().getMethod("width", String.class);
-        return (Integer) m.invoke(font, text);
+    private static void closeEarlyWindowIfDrawn() {
+        com.fusionml.earlywindow.EarlyWindow w = earlyWindow;
+        if (w == null) {
+            return;
+        }
+        earlyWindow = null;
+        try {
+            w.close();
+        } catch (Throwable ignored) {
+            // 关不掉也不该影响游戏
+        }
     }
 }

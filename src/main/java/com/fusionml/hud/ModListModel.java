@@ -76,6 +76,11 @@ public final class ModListModel {
     /** 汇总统计。 */
     public record Stats(int total, Map<ModFormat, Integer> byFormat, int problemMods,
                         int totalDependencies, int totalClasses, int tiers, long jarBytes) {
+        /** 某一端有多少个模组。菜单据此决定"要不要显示这个分组"。 */
+        public int count(ModFormat f) {
+            return byFormat.getOrDefault(f, 0);
+        }
+
         public String formatLine() {
             StringBuilder sb = new StringBuilder();
             for (Map.Entry<ModFormat, Integer> e : byFormat.entrySet()) {

@@ -33,6 +33,9 @@ public final class FusionAgent {
      */
     private static final ClassFileTransformer TRANSFORMER = new Transformer();
     private static final AtomicLong seen = new AtomicLong();
+    /** 已经打印过"命中规则"的类：避免同一个类被反复请求时刷屏。 */
+    private static final java.util.Set<String> reportedClasses =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
     private static final AtomicLong changed = new AtomicLong();
     private static volatile boolean errorLogged;
 
@@ -112,9 +115,16 @@ public final class FusionAgent {
             // 探针：确认变换器到底有没有被调用、以及有没有看到目标类。
             // 之前"HUD 注册了却没生效"就是卡在这里：分不清是规则没匹配上，
             // 还是变换器压根没被 JVM 调用。
-            if (seen.get() <= 5 || className.endsWith("/Hud") || className.endsWith("/Gui")) {
+            //
+            // 只打**第一次**看到某个命中规则的类。注意不能写成"每次命中就打" ——
+            // 试过，结果同一个类被反复请求，日志刷了几百行一模一样的内容，
+            // 把真正的信息淹掉了。
+            boolean hit = p.hasHooksFor(className);
+            if (seen.get() <= 5
+                    || className.endsWith("/Hud") || className.endsWith("/Gui")
+                    || (hit && reportedClasses.add(className))) {
                 System.out.println("[FusionML/探针] 变换器看到类 #" + seen.get() + " " + className
-                        + "（命中规则=" + p.hasHooksFor(className) + "）");
+                        + "（命中规则=" + hit + "）");
             }
             if (!p.hasHooksFor(className)) {
                 // 先查表再动手：绝大多数类在这里就返回，零解析零拷贝。

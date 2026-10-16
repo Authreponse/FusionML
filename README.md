@@ -160,11 +160,7 @@ java -cp build\classes com.fusionml.FusionLauncher --mods <模组目录>
 # 用表格查看模组列表（支持搜索 / 过滤 / 排序）
 java -cp build\classes com.fusionml.FusionLauncher --mods <模组目录> --list --search 优化 --filter fabric
 
-# 打开实时 FPS + 模组列表窗口
-java -cp build\classes com.fusionml.FusionLauncher --mods <模组目录> --hud
-
 # 无界面环境也能出图（用于核对界面与做文档）
-java -cp build\classes com.fusionml.FusionLauncher --mods <模组目录> --shot build\hud.png
 java -cp build\classes com.fusionml.FusionLauncher --mods <模组目录> --shot-ew build\early-window.png
 
 # 生成测试夹具并跑加载基准（200 个包 / 1.1 万个类）
@@ -387,24 +383,6 @@ public class MyMixin {
 
 ---
 
-## 六、内置 FPS 显示与模组列表
-
-HUD 的布局、配色、折线图、列表行、状态标记全部自己绘制，只通过 `HudBackend` 这层接口调用
-"画点线面字"的原语。因此同一套 HUD 既能：
-
-* 在游戏内用游戏自己的字体渲染器绘制（实现该接口即可，不用改 HUD 代码）；
-* 在独立环境用 AWT 绘制（`AwtHudBackend`），用于预览、截图与自动化验证 ——
-  也正因为有这条路径，这套 HUD 才能在"没有游戏"的环境里被真正跑起来并截图核对。
-
-FPS 面板显示：当前帧率、平均帧耗时、**1% low**、最差单帧，以及一段帧时间折线图。
-1% low 比平均帧率更能反映"卡顿感"，所以单列出来。
-
-模组列表显示：名称、版本、平台（按端着色）、加载层次、状态；支持搜索、按端过滤、
-四种排序（问题优先 / 加载层次 / 名称 / 被依赖数）、滚动。
-界面、命令行、日志报告三处共用同一个数据模型，保证"看到的"和"日志里写的"永远一致。
-
----
-
 ## 七、早期加载窗口（earlywindow）与自定义
 
 模组加载发生在游戏主窗口出现之前，这段时间玩家原本只能看黑屏。
@@ -491,7 +469,7 @@ src/main/java/com/fusionml/
   loader/                        类索引、类加载器、变换管线
   platform/                      三端原生适配器
   mixin/                         自研注入格式与扫描器
-  hud/                           FPS 采样 + 模组列表模型 + 渲染（含 AWT 后端）
+  hud/                           模组列表模型 + 离线列表渲染后端（AWT）
   earlywindow/                   早期窗口接口 + 实现 + SPI + 配置
 ```
 
@@ -510,7 +488,7 @@ src/main/java/com/fusionml/
 * 三端元数据并行读取、版本区间判定、分层拓扑、环路与冲突检测；
 * 11083 个类的索引与并行加速（8 线程 2.17×）；
 * 字节码注入：改写后的类**由 JVM 完成校验**并正常执行，钩子收到正确参数（含 long/double 槽位）；
-* HUD 与早期窗口的离屏渲染产物（`build/` 下的截图是真实运行结果）；
+* 早期窗口的离屏渲染产物（`build/` 下的截图是真实运行结果）；
 * **真机（26.3-Fabric 0.19.5，151 个模组）跑到了模组主初始化阶段**：
   `DistantHorizons` 的 NeoForge 版 Mixin 真的在往原版类上注入
   （日志：`Apply DH mixin [...] -> [net.minecraft.client.Minecraft]`），
@@ -553,7 +531,7 @@ src/main/java/com/fusionml/
 1. **不假装**。跑不起来的路径会明确说明"当前环境缺什么"，而不是抛一个看不懂的异常或静默跳过。
 2. **用数据说话**。CPU 并行度、分块大小、缓存相关的取舍都基于实测拓扑与阶段耗时，而不是拍脑袋。
 3. **正确性优先于聪明**。例如注入器的栈中立约束，牺牲了一部分注入能力，换来"改完的类一定合法"。
-4. **可验证**。HUD、早期窗口这类"看得见"的东西，专门做了离屏渲染路径，让它们在没有游戏的环境里也能被截图核对。
+4. **可验证**。早期窗口这类"看得见"的东西，专门做了离屏渲染路径，让它在没有游戏的环境里也能被截图核对。
 5. **取舍要写出来**。跨端合并里有几处是"两边都要、Java 只允许一个"，我们选了一边并把
    牺牲记进日志（`结构性冲突` / `注入点保护`），而不是假装解决了。
 
@@ -994,7 +972,7 @@ build\test.err   ← JVM 的 stderr（崩溃栈在这里）
 1. **主类**：客户端 `KnotClient` / 服务端 `KnotServer`（同一平台的官方入口）；
 2. **挂载点**：客户端挂 `Minecraft#run`，服务端挂 `MinecraftServer#runServer`
    （两者都在原版引导完成之后，见第十一节的"时机三坑"）；
-3. **运行侧开关**：`-Dfusion.client=false` 时服务端不注册 HUD、不做任何渲染相关的事。
+3. **运行侧开关**：`-Dfusion.client=false` 时服务端不做任何客户端相关的事。
 
 日志写在 `build/srv*.out`。
 
