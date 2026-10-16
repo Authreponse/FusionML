@@ -1,0 +1,5 @@
+# FusionML 内置的早期窗口实现。
+# 想让加载器用你自己的早期窗口：新建一个实现 EarlyWindowProvider 的类，
+# 在你自己 jar 的同一路径下写上层类全名即可 —— 加载器会自动发现并按优先级排序。
+com.fusionml.earlywindow.SwingEarlyWindowProvider
+com.fusionml.earlywindow.ConsoleEarlyWindowProvider

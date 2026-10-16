@@ -1,0 +1,12 @@
+modLoader="javafml"
+loaderVersion="[1,)"
+license="MIT"
+
+[[mods]]
+modId="fusionbridgeprobe"
+version="1.0.0"
+displayName="FusionML 跨端探针"
+description="验证非宿主平台（NeoForge）模组的类与 Mixin 能否接进宿主平台的同一次运行"
+
+[[mixins]]
+config="fusionbridgeprobe.mixins.json"

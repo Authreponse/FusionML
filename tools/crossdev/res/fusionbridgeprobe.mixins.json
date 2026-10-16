@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "fusiontest.bridge.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": [
+    "MinecraftRunProbe"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

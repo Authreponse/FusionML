@@ -1,0 +1,18 @@
+# 构建产物：不进仓库
+#
+# 为什么写死在这里而不是靠"上传时手工排除"：build/ 会涨到几百 MB
+# （本机实测 665 MB，里面是合并出来的游戏包缓存），
+# 而且 build/gamedir.txt 记的是**本机绝对路径** —— 传上去既没用又泄露环境。
+build/
+logs/
+.tmp-asar/
+*.class
+*.log
+*.log.gz
+
+# 编辑器 / 系统
+.idea/
+*.iml
+.vscode/
+Thumbs.db
+desktop.ini
